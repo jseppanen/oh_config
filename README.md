@@ -30,7 +30,11 @@ No command line interface
 Not coupled with any software framework or paradigm  
 *– Oh*
 
+## Examples
+
+See [examples](examples)
+
 ## Acknowledgements
 
-Inspired by the excellent [Thinc config system](https://thinc.ai/docs/api-config) design.
+Oh is a fork of the excellent [Thinc config system](https://thinc.ai/docs/api-config) design.
 All regressions from Thinc's functionality are by yours truly.
