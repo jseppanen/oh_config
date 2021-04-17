@@ -117,11 +117,15 @@ def merge_args(defaults: Dict, *pos_overrides, **kw_overrides) -> Tuple[Tuple, D
     merged.update(kw_overrides)
 
     # extract positional arguments
-    pos, args = zip(*sorted(
+    pos_args = sorted(
         (int(k), v) for k, v in merged.items() if isintegral(k)
-    ))
-    if list(pos) != list(range(len(pos))):
-        raise ValueError(f"Invalid positions: {pos}")
+    )
+    if pos_args:
+        pos, args = zip(*pos_args)
+        if list(pos) != list(range(len(pos))):
+            raise ValueError(f"Invalid positions: {pos}")
+    else:
+        args = ()
 
     # extract keyword arguments
     kwargs = {k: v for k, v in merged.items() if not isintegral(k)}
