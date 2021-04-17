@@ -1,9 +1,10 @@
 
+import importlib
 import json
-from functools import partial, wraps
+from functools import partial
 from pathlib import Path
 
-from typing import Any, Callable, Dict, Optional, List, TextIO, Union
+from typing import Any, Callable, Dict, Optional, List, TextIO, Tuple, Union
 from configparser import ConfigParser
 from contextlib import contextmanager
 
@@ -11,6 +12,18 @@ from contextlib import contextmanager
 class Config(dict):
     """Tree of configuration values.
     """
+
+    def __call__(self, *args, **overrides) -> Any:
+        """Call functions/types referenced in config.
+        Only sections having special `@call` key can be called.
+        """
+        if "@call" not in self:
+            raise TypeError("Not callable: no @call key")
+        kwargs = self.copy()
+        func_name = kwargs.pop("@call")
+        kwargs.update(overrides)
+        func = resolve(func_name)
+        return dispatch(func, args, kwargs)
 
     def __getattr__(self, name: str) -> Any:
         """Convenience attribute access to config values."""
@@ -121,26 +134,22 @@ class ConfigView(Dict[str, Any]):
                 assert popped == part, "push/pop invariant failed"
 
 
+# default global singleton configuration
+config = ConfigView(Config())
+
+
+# default global singleton function registry
+registry: Dict[str, Callable] = {}
+
+
 def register(
     func_or_class_or_name: Optional[Union[Callable, str]] = None,
     name: Optional[str] = None,
 ) -> Callable:
-    """Register functions to use configurable arguments when called.
-
-    Decorating a class is convenience for decorating its __init__ method.
-    """
+    """Register functions/classes as @call config keys."""
     if isinstance(func_or_class_or_name, str):
         # @oh.register("foobar")
         return partial(register, name=func_or_class_or_name)
-
-    elif isinstance(func_or_class_or_name, type):
-        # decorating a class is convenience for decorating its __init__ method
-        cls = func_or_class_or_name
-        if not hasattr(cls, "__init__"):
-            raise TypeError(f"cannot register classes without __init__: {cls}")
-        wrapper = register(cls.__init__, name=name or cls.__name__)
-        setattr(cls, "__init__", wrapper)
-        return cls
 
     if func_or_class_or_name is None:
         # @oh.register
@@ -148,27 +157,37 @@ def register(
 
     # @oh.register()
     func = func_or_class_or_name
-    if not name:
-        if func.__name__ != "__init__":
-            name = func.__name__
-        else:
-            # Use parent class's name as default name for __init__ functions
-            assert func.__qualname__.endswith(".__init__"), "funny qualname"
-            name = func.__qualname__.split(".")[-2]
+    name = name or getattr(func, "__name__")
 
-    @wraps(func)
-    def wrapper(*args, **overrides):
-        # fetch parameters from configuration and apply overrides
-        global config
-        if name in config:
-            kwargs = dict(config[name], **overrides)
-        else:
-            kwargs = overrides
-        return dispatch(func, args, kwargs)
-    return wrapper
+    if not isinstance(name, str) or not str.isidentifier(name):
+        raise ValueError(f"Name of callable is not valid: {name}")
+
+    global registry
+    registry[name] = func
+    return func
 
 
-def dispatch(func: Callable, args: List, kwargs: Dict) -> Any:
+def resolve(name: str) -> Callable:
+    """Resolve callable by registry or module lookup."""
+    global registry
+    if not isinstance(name, str):
+        raise TypeError(f"Name is not a string: {name}")
+    if "." not in name:
+        # registry lookup
+        if name not in registry:
+            raise KeyError(f"Name not found in callable registry: {name}")
+        return registry[name]
+    else:
+        # module import
+        module_name, attr_name = name.rsplit(".", 1)
+        module = importlib.import_module(module_name)
+        if not hasattr(module, attr_name):
+            raise ImportError(f"Name not found in module {module}: {name}")
+        return getattr(module, attr_name)
+
+
+def dispatch(func: Callable, args: Tuple, kwargs: Dict) -> Any:
+    """Make function call with dynamic arguments."""
     try:
         return func(*args, **kwargs)
     except Exception:
@@ -188,7 +207,3 @@ def try_load_json(value: str) -> Any:
         return json.loads(value)
     except Exception:
         return value
-
-
-# default global singleton configuration
-config = ConfigView(Config())
