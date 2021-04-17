@@ -13,16 +13,17 @@ class Config(dict):
     """Tree of configuration values.
     """
 
-    def __call__(self, *args, **overrides) -> Any:
+    def __call__(self, *pos_overrides, **kw_overrides) -> Any:
         """Call functions/types referenced in config.
         Only sections having special `@call` key can be called.
         """
         if "@call" not in self:
             raise TypeError("Not callable: no @call key")
-        kwargs = self.copy()
-        func_name = kwargs.pop("@call")
-        kwargs.update(overrides)
+
+        defaults = self.copy()
+        func_name = defaults.pop("@call")
         func = resolve(func_name)
+        args, kwargs = merge_args(defaults, *pos_overrides, **kw_overrides)
         return dispatch(func, args, kwargs)
 
     def __getattr__(self, name: str) -> Any:
@@ -76,25 +77,64 @@ class Config(dict):
             # Set the default section
             node = node.setdefault(parts[-1], Config())
             for key, value in values.items():
+                # parse key
                 if key.startswith("@"):
+                    # special @ key
                     if key != "@call":
                         raise ParseError(f"Key is not supported: {repr(key)}")
                     else:
-                        parsed_value = value
+                        node[key] = value
+                    continue
+                elif isintegral(key):
+                    # integral key, used for positional arguments
+                    pos = int(key)
+                    if pos < 0:
+                        raise ParseError(f"Negative positions are not valid: {pos}")
+                    key = str(pos)
                 elif not str.isidentifier(key):
                     raise ParseError(f"Key is not valid: {repr(key)}")
-                else:
-                    # interpolate
-                    config_v = config.get(section, key)
-                    try:
-                        parsed_value = json.loads(config_v)
-                    except Exception:
-                        raise ParseError(f"Error parsing value of {key}: {config_v}")
+
+                # parse value
+                config_v = config.get(section, key)
+                try:
+                    parsed_value = json.loads(config_v)
+                except Exception:
+                    raise ParseError(f"Error parsing value of {key}: {config_v}")
                 node[key] = parsed_value
 
 
 class ParseError(ValueError):
     pass
+
+
+def merge_args(defaults: Dict, *pos_overrides, **kw_overrides) -> Tuple[Tuple, Dict]:
+    """Merge positional and keyword arguments."""
+    # apply overrides
+    merged = defaults.copy()
+    merged.update({
+        str(k): v for k, v in enumerate(pos_overrides)
+    })
+    merged.update(kw_overrides)
+
+    # extract positional arguments
+    pos, args = zip(*sorted(
+        (int(k), v) for k, v in merged.items() if isintegral(k)
+    ))
+    if list(pos) != list(range(len(pos))):
+        raise ValueError(f"Invalid positions: {pos}")
+
+    # extract keyword arguments
+    kwargs = {k: v for k, v in merged.items() if not isintegral(k)}
+
+    return args, kwargs
+
+
+def isintegral(txt: str) -> bool:
+    try:
+        int(txt)
+        return True
+    except ValueError:
+        return False
 
 
 class ConfigView(Dict[str, Any]):
