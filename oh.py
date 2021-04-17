@@ -99,7 +99,7 @@ class ConfigView(Dict[str, Any]):
     def __len__(self):
         return len(self._node)
 
-    def __contains__(self, name: str) -> bool:
+    def __contains__(self, name: object) -> bool:
         return name in self._node
 
     def __repr__(self) -> str:
