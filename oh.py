@@ -164,8 +164,22 @@ def register(
             kwargs = dict(config[name], **overrides)
         else:
             kwargs = overrides
-        return func(*args, **kwargs)
+        return dispatch(func, args, kwargs)
     return wrapper
+
+
+def dispatch(func: Callable, args: List, kwargs: Dict) -> Any:
+    try:
+        return func(*args, **kwargs)
+    except Exception:
+        # generate more helpful error message
+        args_txt = ", ".join(f"{a}" for a in args)
+        if kwargs:
+            if args:
+                args_txt += ", "
+            args_txt += ", ".join(f"{k}={v}" for k, v in kwargs.items())
+        func_name = getattr(func, "__name__", "<unnamed callable>")
+        raise RuntimeError(f"Dispatch failed: {func_name}({args_txt})")
 
 
 def try_load_json(value: str) -> Any:
