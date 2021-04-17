@@ -70,8 +70,21 @@ class Config(dict):
             # Set the default section
             node = node.setdefault(parts[-1], Config())
             for key, value in values.items():
-                config_v = config.get(section, key)
-                node[key] = try_load_json(config_v)
+                if key.startswith("@"):
+                    if key != "@call":
+                        raise ParseError(f"Key is not supported: {repr(key)}")
+                    else:
+                        parsed_value = value
+                elif not str.isidentifier(key):
+                    raise ParseError(f"Key is not valid: {repr(key)}")
+                else:
+                    # interpolate
+                    config_v = config.get(section, key)
+                    try:
+                        parsed_value = json.loads(config_v)
+                    except Exception:
+                        raise ParseError(f"Error parsing value of {key}: {config_v}")
+                node[key] = parsed_value
 
 
 class ParseError(ValueError):
@@ -192,18 +205,10 @@ def dispatch(func: Callable, args: Tuple, kwargs: Dict) -> Any:
         return func(*args, **kwargs)
     except Exception:
         # generate more helpful error message
-        args_txt = ", ".join(f"{a}" for a in args)
+        args_txt = ", ".join(repr(a) for a in args)
         if kwargs:
             if args:
                 args_txt += ", "
-            args_txt += ", ".join(f"{k}={v}" for k, v in kwargs.items())
+            args_txt += ", ".join(f"{k}={repr(v)}" for k, v in kwargs.items())
         func_name = getattr(func, "__name__", "<unnamed callable>")
         raise RuntimeError(f"Dispatch failed: {func_name}({args_txt})")
-
-
-def try_load_json(value: str) -> Any:
-    """Load a JSON string if possible, otherwise default to original value."""
-    try:
-        return json.loads(value)
-    except Exception:
-        return value
