@@ -235,18 +235,28 @@ def resolve(name: str) -> Callable:
     global registry
     if not isinstance(name, str):
         raise TypeError(f"Name is not a string: {name}")
-    if "." not in name:
+    if "/" not in name:
         # registry lookup
+        name, attr_path = (name + ".").split(".", 1)
         if name not in registry:
             raise KeyError(f"Name not found in callable registry: {name}")
-        return registry[name]
+        obj = registry[name]
+        if attr_path:
+            obj = nested_getattr(obj, attr_path)
+        return obj
     else:
         # module import
-        module_name, attr_name = name.rsplit(".", 1)
+        if name.count("/") > 1:
+            raise ParseError(f"Too many slashes: {name}")
+        module_name, attr_path = name.split("/", 1)
         module = importlib.import_module(module_name)
-        if not hasattr(module, attr_name):
-            raise ImportError(f"Name not found in module {module}: {name}")
-        return getattr(module, attr_name)
+        return nested_getattr(module, attr_path)
+
+
+def nested_getattr(obj, path):
+    for name in path.split("."):
+        obj = getattr(obj, name)
+    return obj
 
 
 def dispatch(func: Callable, args: Tuple, kwargs: Dict) -> Any:

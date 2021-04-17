@@ -1,3 +1,16 @@
+import pathlib
+
+
+def test_module_import(oh):
+    oh.config.load_str(
+        """
+        [main]
+        @call = pathlib/Path.cwd
+        """
+    )
+    res = oh.config.main()
+    assert isinstance(res, pathlib.Path)
+
 
 def test_register_class(oh):
     @oh.register
