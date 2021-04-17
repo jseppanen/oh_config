@@ -37,7 +37,13 @@ class Config(dict):
 
         Multiple calls update config incrementally.
         """
-        config = ConfigParser()
+        config = ConfigParser(
+            delimiters=["="],
+            comment_prefixes=["#"],
+            inline_comment_prefixes=["#"],
+            strict=True,
+            empty_lines_in_values=False,
+        )
         config.optionxform = str
         config.read_string(txt)
         self.load_config(config)
