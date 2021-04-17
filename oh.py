@@ -20,12 +20,20 @@ class Config(dict):
             raise AttributeError(f"Configuration value not found: {name}")
 
     def load_str(self, txt: str) -> None:
+        """Load configuration from string.
+
+        Multiple calls update config incrementally.
+        """
         config = ConfigParser()
         config.optionxform = str
         config.read_string(txt)
         self.load_config(config)
 
     def load_file(self, fd: Union[str, Path, TextIO]) -> None:
+        """Load configuration from file.
+
+        Multiple calls update config incrementally.
+        """
         if isinstance(fd, (str, Path)):
             fd = open(fd)
         self.load_str(fd.read())
@@ -130,7 +138,7 @@ def register(
         cls = func_or_class_or_name
         if not hasattr(cls, "__init__"):
             raise TypeError(f"cannot register classes without __init__: {cls}")
-        wrapper = register(cls.__init__, name=name)
+        wrapper = register(cls.__init__, name=name or cls.__name__)
         setattr(cls, "__init__", wrapper)
         return cls
 
@@ -140,7 +148,13 @@ def register(
 
     # @oh.register()
     func = func_or_class_or_name
-    name = name or func.__name__
+    if not name:
+        if func.__name__ != "__init__":
+            name = func.__name__
+        else:
+            # Use parent class's name as default name for __init__ functions
+            assert func.__qualname__.endswith(".__init__"), "funny qualname"
+            name = func.__qualname__.split(".")[-2]
 
     @wraps(func)
     def wrapper(*args, **overrides):
