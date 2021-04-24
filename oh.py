@@ -73,7 +73,7 @@ class Config(dict):
                 else:
                     node = node[part]
             if not isinstance(node, dict):
-                raise ParseError(f"Found conflicting values for {part}")
+                raise ParseError(f"Found conflicting values for {parts}")
             # Set the default section
             node = node.setdefault(parts[-1], Config())
             for key, value in values.items():
