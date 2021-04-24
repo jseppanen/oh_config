@@ -178,6 +178,12 @@ class ConfigView(Dict[str, Any]):
             node = node[key]
         return node
 
+    def clear(self) -> None:
+        """Clear configuration."""
+        if self._view_path:
+            raise RuntimeError("Only root config can be cleared")
+        self._config.clear()
+
     @contextmanager
     def enter(self, section: str):
         """Traverse config tree down to view to a subsection."""
