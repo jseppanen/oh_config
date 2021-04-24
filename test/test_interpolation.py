@@ -75,6 +75,46 @@ def test_interpolation():
     assert c["a"]["bar"] == "x"
     assert c["a"]["baz"] == "xy"
 
+    # multiple string interpolations
+    c = Config.from_str(
+        """
+        [a]
+        x = "x"
+        y = 1
+        z = 3.14159
+        zz = "foo ${a.x} ${a.y} ${a.z}"
+        """
+    )
+    assert c.a.zz == "foo x 1 3.14159"
+
+    # test all types
+    c = Config.from_str(
+        """
+        [a]
+        int = 42
+        float = 3.14159
+        str = "foobar"
+        bool = true
+        null = null
+        x = "${a.int} ${a.float} ${a.str} ${a.bool} ${a.null}"
+        y = {"a": ${a.int}, "b": ${a.float}, "c": ${a.str}, "d": ${a.bool}, "e": ${a.null}}
+        z = [${a.int}, ${a.float}, ${a.str}, ${a.bool}, ${a.null}]
+        """
+    )
+    assert c.a.x == "42 3.14159 foobar True None"
+    assert c.a.y == {"a": 42, "b": 3.14159, "c": "foobar", "d": True, "e": None}
+    assert c.a.z == [42, 3.14159, "foobar", True, None]
+
+    # leading and trailing text
+    c = Config.from_str(
+        """
+        [a]
+        b = "ergo"
+        c = "cogito ${a.b} sum"
+        """
+    )
+    assert c.a.c == "cogito ergo sum"
+
 
 def test_interpolation_lists():
     """Test that lists are preserved correctly"""

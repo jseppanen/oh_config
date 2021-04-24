@@ -205,8 +205,9 @@ class InterpolatingJSONDecoder(json.JSONDecoder):
             Only scalar values can be used in string interpolation.
             """
             string, end = default_parse_string(string, end, strict)
-            match = variable_re.search(string)
-            if match:
+            interpolated = ""
+            pos = 0
+            for match in variable_re.finditer(string):
                 key = match.groups()[0]
                 value = substitute(key, match.string)
                 if not isinstance(value, (bool, int, float, str, type(None))):
@@ -216,8 +217,10 @@ class InterpolatingJSONDecoder(json.JSONDecoder):
                         f'non-scalar variable {key}: {value}'
                     )
                 var_start, var_end = match.span()
-                string = string[:var_start] + str(value) + string[var_end:]
-            return string, end
+                interpolated += string[pos:var_start] + str(value)
+                pos = var_end
+            interpolated += string[pos:]
+            return interpolated, end
 
         def substitute(key, var_text):
             try:
