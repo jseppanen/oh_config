@@ -43,3 +43,19 @@ def test_register_function(oh):
     )
     res = oh.config.main()
     assert res == 43
+
+
+def test_register_renamed(oh):
+    @oh.register("meaning_of_life")
+    def foo(x):
+        return x == 42
+
+    oh.config.load_str(
+        """
+        [main]
+        @call = meaning_of_life
+        0 = 42
+        """
+    )
+    res = oh.config.main()
+    assert res == True
