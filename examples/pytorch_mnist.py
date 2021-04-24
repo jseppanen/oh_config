@@ -91,12 +91,12 @@ dropout = 0.5
 
 [training.optimizer]
 @call = torch.optim/Adadelta
-lr = 1.0
+lr = ${training.lr}
 
 [training.scheduler]
 @call = torch.optim.lr_scheduler/StepLR
 step_size = 1
-gamma = 0.7
+gamma = ${training.gamma}
 
 [testing]
 batch_size = 1024

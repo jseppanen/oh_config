@@ -52,7 +52,6 @@ def cnn_tagger(width: int, vector_width: int, nr_classes: int = 17):
     return model
 
 
-# XXX interpolation is not implemented yet
 CONFIG = """
 [hyper_params]
 width = 32
@@ -65,13 +64,13 @@ batch_size = 128
 
 [model]
 @call = cnn_tagger
-width = 32  # ${hyper_params:width}
-vector_width = 16  # ${hyper_params:vector_width}
+width = ${hyper_params.width}
+vector_width = ${hyper_params.vector_width}
 nr_classes = 17
 
 [optimizer]
 @call = thinc.api/Adam
-learn_rate = 0.001  # ${hyper_params:learn_rate}
+learn_rate = ${hyper_params.learn_rate}
 """
 
 fix_random_seed(0)

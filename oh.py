@@ -1,10 +1,12 @@
 
+from io import StringIO
 import importlib
 import json
+import re
 from functools import partial
 from pathlib import Path
 
-from typing import Any, Callable, Dict, Optional, List, TextIO, Tuple, Union
+from typing import Any, Callable, Dict, Iterator, Optional, List, TextIO, Tuple, Union
 from configparser import ConfigParser
 from contextlib import contextmanager
 
@@ -33,43 +35,106 @@ class Config(dict):
         else:
             raise AttributeError(f"Configuration value not found: {name}")
 
-    def load_str(self, txt: str) -> None:
-        """Load configuration from string.
+    @property
+    def flat(self) -> Dict[str, Any]:
+        """Convenience access to nested config values."""
+        def walk(dct: Dict, key: str) -> Any:
+            if "." in key:
+                first, rest = key.split(".", 1)
+                return walk(dct[first], rest)
+            else:
+                return dct[key]
 
-        Multiple calls update config incrementally.
-        """
-        config = ConfigParser(
+        def search(dct: Dict) -> Iterator[str]:
+            for key, value in dct.items():
+                if isinstance(value, dict):
+                    for subkey in search(value):
+                        yield f"{key}.{subkey}"
+                else:
+                    yield key
+
+        class FlatConfig(Dict[str, Any]):
+            def __contains__(_, key: object) -> bool:
+                try:
+                    walk(self, str(key))
+                    return True
+                except KeyError:
+                    return False
+
+            def __getitem__(_, key: str) -> Any:
+                return walk(self, key)
+
+            def __iter__(_) -> Iterator[str]:
+                return search(self)
+
+            def __len__(_) -> int:
+                return sum(1 for _ in search(self))
+
+            def __repr__(_) -> str:
+                keys = list(search(self))
+                return f"FlatConfig({', '.join(map(repr, keys))})"
+        return FlatConfig()
+
+    @classmethod
+    def from_str(cls, txt: str, *, interpolate: bool = True) -> "Config":
+        """Load configuration from string."""
+        parser = ConfigParser(
+            interpolation=None,
             delimiters=["="],
             comment_prefixes=["#"],
             inline_comment_prefixes=["#"],
             strict=True,
             empty_lines_in_values=False,
         )
-        config.optionxform = str
-        config.read_string(txt)
-        self.load_config(config)
+        parser.optionxform = str  # type: ignore
+        parser.read_string(txt)
+        config = Config()
+        config._update(parser, interpolate=interpolate)
+        return config
 
-    def load_file(self, fd: Union[str, Path, TextIO]) -> None:
-        """Load configuration from file.
-
-        Multiple calls update config incrementally.
-        """
+    @classmethod
+    def from_file(cls, fd: Union[str, Path, TextIO]) -> "Config":
+        """Load configuration from file."""
         if isinstance(fd, (str, Path)):
             fd = open(fd)
-        self.load_str(fd.read())
+        return Config.from_str(fd.read())
 
-    def load_config(self, config: ConfigParser) -> None:
-        if config.defaults():
+    @classmethod
+    def from_json(cls, data: str) -> "Config":
+        """Load configuration from JSON string."""
+        parsed = json.loads(data)
+        return Config(parsed)
+
+    def to_str(self) -> str:
+        """Write the config to a string."""
+        writer = ConfigParser()
+        for path in self.flat:
+            if "." not in path:
+                raise RuntimeError(f"section missing from {repr(path)}")
+            section, key = path.rsplit(".", 1)
+            if not writer.has_section(section):
+                writer.add_section(section)
+            json_value = json.dumps(self.flat[path])
+            writer.set(section, key, json_value)
+        buf = StringIO()
+        writer.write(buf)
+        return buf.getvalue().strip()
+
+    def _update(self, parser: ConfigParser, *, interpolate: bool = True) -> None:
+        if parser.defaults():
             raise ParseError("Found config values outside of any section")
+        json_parser = (
+            InterpolatingJSONDecoder(self.flat) if interpolate else json.JSONDecoder()
+        )
         get_depth = lambda item: len(item[0].split("."))
-        for section, values in sorted(config.items(), key=get_depth):
+        for section, values in sorted(parser.items(), key=get_depth):
             if section == "DEFAULT":
                 continue
             parts = section.split(".")
             node = self
             for part in parts[:-1]:
                 if part not in node:
-                    raise ParseError("Error parsing config section {part}")
+                    node = node.setdefault(part, Config())
                 else:
                     node = node[part]
             if not isinstance(node, dict):
@@ -95,16 +160,77 @@ class Config(dict):
                     raise ParseError(f"Key is not valid: {repr(key)}")
 
                 # parse value
-                config_v = config.get(section, key)
                 try:
-                    parsed_value = json.loads(config_v)
-                except Exception:
-                    raise ParseError(f"Error parsing value of {key}: {config_v}")
+                    parsed_value = json_parser.decode(value)
+                except json.JSONDecodeError as err:
+                    raise ParseError(
+                        f"Error parsing value of {key}: {repr(value)}: {err}"
+                    )
                 node[key] = parsed_value
 
 
 class ParseError(ValueError):
     pass
+
+
+class InterpolatingJSONDecoder(json.JSONDecoder):
+    """JSON decoder with variable substitution/interpolation."""
+
+    def __init__(self, variables: Dict):
+        super().__init__()
+
+        default_parse_array: Callable = self.parse_array
+        default_parse_object: Callable = self.parse_object
+        default_parse_string: Callable = self.parse_string
+        variable_re = re.compile(r"\$\{([^}]+)\}")
+
+        def scan_once(string, idx):
+            """Parse value with interpolation."""
+            match = variable_re.match(string[idx:])
+            if match:
+                key = match.groups()[0]
+                value = substitute(key, match.string)
+                return value, idx + match.end()
+            else:
+                return default_scanner(string, idx)
+
+        def parse_array(s_and_end, _default_scan_once, *args, **kwargs):
+            return default_parse_array(s_and_end, scan_once, *args, **kwargs)
+
+        def parse_object(s_and_end, strict, _default_scan_once, *args, **kwargs):
+            return default_parse_object(s_and_end, strict, scan_once, *args, **kwargs)
+
+        def parse_string(string, end, strict):
+            """Parse JSON string with interpolation.
+            Only scalar values can be used in string interpolation.
+            """
+            string, end = default_parse_string(string, end, strict)
+            match = variable_re.search(string)
+            if match:
+                key = match.groups()[0]
+                value = substitute(key, match.string)
+                if not isinstance(value, (bool, int, float, str, type(None))):
+                    # refuse to interpolate nested values in strings
+                    raise ParseError(
+                        f'String interpolation "{string}" contains '
+                        f'non-scalar variable {key}: {value}'
+                    )
+                var_start, var_end = match.span()
+                string = string[:var_start] + str(value) + string[var_end:]
+            return string, end
+
+        def substitute(key, var_text):
+            try:
+                return variables[key]
+            except KeyError:
+                raise ParseError(f"Variable not found: {repr(var_text)}")
+
+        self.parse_array = parse_array
+        self.parse_object = parse_object
+        self.parse_string = parse_string
+        self.scan_once = scan_once
+        # must call in the end (refers to self.parse_*)
+        default_scanner = json.scanner.py_make_scanner(self)
 
 
 def merge_args(defaults: Dict, *pos_overrides, **kw_overrides) -> Tuple[Tuple, Dict]:
@@ -151,15 +277,18 @@ class ConfigView(Dict[str, Any]):
 
     def __getattr__(self, name: str) -> Any:
         """Convenience attribute access to config values."""
-        return getattr(self._node, name)
+        if name in self:
+            return self[name]
+        else:
+            raise AttributeError(f"Configuration value not found: {name}")
 
     def __getitem__(self, name: str) -> Any:
         return self._node[name]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         return iter(self._node)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._node)
 
     def __contains__(self, name: object) -> bool:
@@ -183,6 +312,19 @@ class ConfigView(Dict[str, Any]):
         if self._view_path:
             raise RuntimeError("Only root config can be cleared")
         self._config.clear()
+
+    def load_str(self, txt: str) -> None:
+        """Load configuration from string."""
+        if self._view_path:
+            raise RuntimeError("Only root config can be loaded")
+        config = Config.from_str(txt)
+        self._config.update(config)
+
+    def load_file(self, fd: Union[str, Path, TextIO]) -> None:
+        if self._view_path:
+            raise RuntimeError("Only root config can be loaded")
+        config = Config.from_file(fd)
+        self._config.update(config)
 
     @contextmanager
     def enter(self, section: str):
