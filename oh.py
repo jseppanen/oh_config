@@ -138,8 +138,7 @@ class Config(dict):
         if parser.defaults():
             raise ParseError("Found config values outside of any section")
         json_parser = InterpolatingJSONDecoder(self.flat, interpolate=interpolate)
-        get_depth = lambda item: len(item[0].split("."))
-        for section, values in sorted(parser.items(), key=get_depth):
+        for section, values in parser.items():
             if section == "DEFAULT":
                 continue
             parts = section.split(".")
@@ -174,7 +173,7 @@ class Config(dict):
                 except json.JSONDecodeError as err:
                     raise ParseError(
                         f"Error parsing value of {key}: {repr(value)}: {err}"
-                    )
+                    ) from None
                 node[key] = parsed_value
 
 
@@ -244,7 +243,7 @@ class InterpolatingJSONDecoder(json.JSONDecoder):
             try:
                 return variables[key]
             except KeyError:
-                raise ParseError(f"Variable not found: {repr(var_text)}")
+                raise ParseError(f"Variable not found: {repr(var_text)}") from None
 
         self.parse_array = parse_array
         self.parse_object = parse_object

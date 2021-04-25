@@ -13,21 +13,33 @@ c = "fof"
 e = ${a}
 [f]
 @call = pathlib/Path.cwd
+[g]
+x = ${a.c}
 """
 
 
 def test_save_as_json():
-    c = Config({"foo": "bar"})
+    c = Config.from_str(TEST_CONFIG)
     data = json.dumps(c)
     d = Config.from_json(data)
-    assert d == {"foo": "bar"}
+    assert d == c
+
+    c = Config.from_str(TEST_CONFIG, interpolate=False)
+    data = json.dumps(c)
+    d = Config.from_json(data)
+    assert d == c
 
 
 def test_save_as_pickle():
-    c = Config({"foo": "bar"})
+    c = Config.from_str(TEST_CONFIG)
     data = pickle.dumps(c)
     d = pickle.loads(data)
-    assert d == {"foo": "bar"}
+    assert d == c
+
+    c = Config.from_str(TEST_CONFIG, interpolate=False)
+    data = pickle.dumps(c)
+    d = pickle.loads(data)
+    assert d == c
 
 
 def test_save_as_str():

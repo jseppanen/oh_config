@@ -115,6 +115,16 @@ def test_interpolation():
     )
     assert c.a.c == "cogito ergo sum"
 
+    # trailing spaces
+    c = Config.from_str(
+        """
+        [a]
+        b = "zip"
+        c = ${a.b}   
+        """
+    )
+    assert c.a.c == "zip"
+
     c = Config.from_str(
         """
         [a]
@@ -133,6 +143,57 @@ def test_interpolation():
             """
         )
 
+    # nested data in string interpolation
+    with pytest.raises(ParseError):
+        Config.from_str(
+            """
+            [a]
+            b = 1
+            c = "fof"
+            [d]
+            e = "${a}"
+            """
+        )
+
+    # wrong order
+    with pytest.raises(ParseError):
+        Config.from_str(
+            """
+            [a]
+            b = ${d}
+            [d]
+            e = 1
+            """
+        )
+
+    # cyclic references
+    with pytest.raises(ParseError):
+        Config.from_str(
+            """
+            [a]
+            b = ${d.e}
+            [d]
+            e = ${a.b}
+            """
+        )
+
+    # chained references
+    c = Config.from_str(
+        """
+        [a]
+        b = 1
+        [c]
+        d = ${a}
+        [e]
+        f = ${c.d.b}
+        [g]
+        h = ${e.f}
+        """
+    )
+    assert c.flat["a.b"] == 1
+    assert c.flat["c.d"] == {"b": 1}
+    assert c.flat["e.f"] == 1
+    assert c.flat["g.h"] == 1
 
 def test_interpolation_lists():
     """Test that lists are preserved correctly"""
@@ -228,17 +289,6 @@ def test_interpolation_lists():
         """
     )
     assert c.d.e == {"b": 1, "c": "fof"}
-
-    with pytest.raises(ParseError):
-        Config.from_str(
-            """
-            [a]
-            b = 1
-            c = "fof"
-            [d]
-            e = "${a}"
-            """
-        )
 
 
 def test_no_interpolation():
