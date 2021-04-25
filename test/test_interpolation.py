@@ -115,6 +115,24 @@ def test_interpolation():
     )
     assert c.a.c == "cogito ergo sum"
 
+    c = Config.from_str(
+        """
+        [a]
+        b = "zip"
+        c = "${a.b}${a.b}"
+        """
+    )
+    assert c.a.c == "zipzip"
+
+    with pytest.raises(ParseError):
+        Config.from_str(
+            """
+            [a]
+            b = "zip"
+            c = ${a.b}${a.b}
+            """
+        )
+
 
 def test_interpolation_lists():
     """Test that lists are preserved correctly"""
@@ -139,16 +157,16 @@ def test_interpolation_lists():
     )
     assert c["c"]["d"] == ["hello 1", "world"]
 
-    with pytest.raises(ParseError):
-        Config.from_str(
-            """
-            [a]
-            b = 1
-            [c]
-            d = [${a.b}, "hello ${a.b}", "world"]
-            """,
-            interpolate=False
-        )
+    c = Config.from_str(
+        """
+        [a]
+        b = 1
+        [c]
+        d = [${a.b}, "hello ${a.b}", "world"]
+        """,
+        interpolate=False
+    )
+    assert c["c"]["d"] == [{"@ref": "a.b"}, "hello ${a.b}", "world"]
 
     c = Config.from_str(
         """
@@ -232,12 +250,31 @@ def test_no_interpolation():
         [c]
         d = "${a.b}"
         e = "hello${a.b}"
+        f = ${a}
         """,
         interpolate=False
     )
+
     assert c["c"]["d"] == "${a.b}"
     assert c["c"]["e"] == "hello${a.b}"
+    assert c["c"]["f"] == {"@ref": "a"}
 
     d = Config.from_str(c.to_str(), interpolate=True)
     assert d["c"]["d"] == "1"
     assert d["c"]["e"] == "hello1"
+    assert d["c"]["f"] == {"b": 1}
+
+    c = Config.from_str(
+        """
+        [a]
+        b = 1
+        [c.d]
+        @ref = a
+        """
+    )
+    assert c.flat["a.b"] == 1
+    assert c.flat["c.d"] == {"@ref": "a"}
+
+    d = Config.from_str(c.to_str(), interpolate=True)
+    assert d.flat["a.b"] == 1
+    assert d.flat["c.d"] == {"b": 1}

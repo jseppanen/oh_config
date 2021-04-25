@@ -110,12 +110,26 @@ class Config(dict):
         writer = ConfigParser()
         for path in self.flat:
             if "." not in path:
-                raise RuntimeError(f"section missing from {repr(path)}")
+                raise SaveError(f"section missing from {repr(path)}")
             section, key = path.rsplit(".", 1)
+            value = self.flat[path]
+            if key == "@ref":
+                # restore interpolation syntax
+                if "." not in section:
+                    raise SaveError(f"section missing from {repr(section)}")
+                section, key = section.rsplit(".", 1)
+                if key.startswith("@"):
+                    raise SaveError(f"illegal key at {path}: {repr(key)}")
+                str_value = "${" + str(value) + "}"
+            elif key.startswith("@") or isintegral(key):
+                # special @ key, values are unquoted strings
+                # integral key, values are integers
+                str_value = str(value)
+            else:
+                str_value = json.dumps(value)
             if not writer.has_section(section):
                 writer.add_section(section)
-            json_value = json.dumps(self.flat[path])
-            writer.set(section, key, json_value)
+            writer.set(section, key, str_value)
         buf = StringIO()
         writer.write(buf)
         return buf.getvalue().strip()
@@ -123,9 +137,7 @@ class Config(dict):
     def _update(self, parser: ConfigParser, *, interpolate: bool = True) -> None:
         if parser.defaults():
             raise ParseError("Found config values outside of any section")
-        json_parser = (
-            InterpolatingJSONDecoder(self.flat) if interpolate else json.JSONDecoder()
-        )
+        json_parser = InterpolatingJSONDecoder(self.flat, interpolate=interpolate)
         get_depth = lambda item: len(item[0].split("."))
         for section, values in sorted(parser.items(), key=get_depth):
             if section == "DEFAULT":
@@ -144,11 +156,8 @@ class Config(dict):
             for key, value in values.items():
                 # parse key
                 if key.startswith("@"):
-                    # special @ key
-                    if key != "@call":
-                        raise ParseError(f"Key is not supported: {repr(key)}")
-                    else:
-                        node[key] = value
+                    # special @ key, values are plain unquoted strings
+                    node[key] = str(value)
                     continue
                 elif isintegral(key):
                     # integral key, used for positional arguments
@@ -173,10 +182,14 @@ class ParseError(ValueError):
     pass
 
 
+class SaveError(ValueError):
+    pass
+
+
 class InterpolatingJSONDecoder(json.JSONDecoder):
     """JSON decoder with variable substitution/interpolation."""
 
-    def __init__(self, variables: Dict):
+    def __init__(self, variables: Dict, *, interpolate: bool = True):
         super().__init__()
 
         default_parse_array: Callable = self.parse_array
@@ -189,7 +202,10 @@ class InterpolatingJSONDecoder(json.JSONDecoder):
             match = variable_re.match(string[idx:])
             if match:
                 key = match.groups()[0]
-                value = substitute(key, match.string)
+                if interpolate:
+                    value = substitute(key, match.string)
+                else:
+                    value = {"@ref": key}
                 return value, idx + match.end()
             else:
                 return default_scanner(string, idx)
@@ -205,6 +221,8 @@ class InterpolatingJSONDecoder(json.JSONDecoder):
             Only scalar values can be used in string interpolation.
             """
             string, end = default_parse_string(string, end, strict)
+            if not interpolate:
+                return string, end
             interpolated = ""
             pos = 0
             for match in variable_re.finditer(string):
