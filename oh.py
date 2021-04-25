@@ -93,11 +93,13 @@ class Config(dict):
         return config
 
     @classmethod
-    def from_file(cls, fd: Union[str, Path, TextIO]) -> "Config":
+    def from_file(
+        cls, fd: Union[str, Path, TextIO], *, interpolate: bool = True
+    ) -> "Config":
         """Load configuration from file."""
         if isinstance(fd, (str, Path)):
             fd = open(fd)
-        return Config.from_str(fd.read())
+        return Config.from_str(fd.read(), interpolate=interpolate)
 
     @classmethod
     def from_json(cls, data: str) -> "Config":
