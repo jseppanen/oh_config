@@ -431,7 +431,7 @@ def dispatch(func: Callable, args: Tuple, kwargs: Dict) -> Any:
     """Make function call with dynamic arguments."""
     try:
         return func(*args, **kwargs)
-    except Exception:
+    except Exception as err:
         # generate more helpful error message
         args_txt = ", ".join(repr(a) for a in args)
         if kwargs:
@@ -439,4 +439,4 @@ def dispatch(func: Callable, args: Tuple, kwargs: Dict) -> Any:
                 args_txt += ", "
             args_txt += ", ".join(f"{k}={repr(v)}" for k, v in kwargs.items())
         func_name = getattr(func, "__name__", "<unnamed callable>")
-        raise RuntimeError(f"Dispatch failed: {func_name}({args_txt})")
+        raise RuntimeError(f"Dispatch failed: {func_name}({args_txt})") from err
