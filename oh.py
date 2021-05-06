@@ -116,6 +116,27 @@ class Config(dict):
     @classmethod
     def from_str(cls, txt: str, *, interpolate: bool = True) -> "Config":
         """Load configuration from string."""
+        config = Config()
+        config.load_str(txt, interpolate=interpolate)
+        return config
+
+    @classmethod
+    def from_file(
+        cls, fd: Union[str, Path, TextIO], *, interpolate: bool = True
+    ) -> "Config":
+        """Load configuration from file."""
+        config = Config()
+        config.load_file(fd, interpolate=interpolate)
+        return config
+
+    @classmethod
+    def from_json(cls, data: str) -> "Config":
+        """Load configuration from JSON string."""
+        parsed = json.loads(data)
+        return Config(parsed)
+
+    def load_str(self, txt: str, *, interpolate: bool = True) -> None:
+        """Load configuration from string."""
         parser = ConfigParser(
             interpolation=None,
             delimiters=["="],
@@ -126,24 +147,20 @@ class Config(dict):
         )
         parser.optionxform = str  # type: ignore
         parser.read_string(txt)
-        config = Config()
-        config._update(parser, interpolate=interpolate)
-        return config
+        self._update(parser, interpolate=interpolate)
 
-    @classmethod
-    def from_file(
-        cls, fd: Union[str, Path, TextIO], *, interpolate: bool = True
-    ) -> "Config":
+    def load_file(
+        self, fd: Union[str, Path, TextIO], *, interpolate: bool = True
+    ) -> None:
         """Load configuration from file."""
         if isinstance(fd, (str, Path)):
             fd = open(fd)
-        return Config.from_str(fd.read(), interpolate=interpolate)
+        self.load_str(fd.read(), interpolate=interpolate)
 
-    @classmethod
-    def from_json(cls, data: str) -> "Config":
+    def load_json(self, data: str) -> None:
         """Load configuration from JSON string."""
         parsed = json.loads(data)
-        return Config(parsed)
+        self.update(parsed)
 
     def to_str(self) -> str:
         """Write the config to a string."""
@@ -374,14 +391,17 @@ class ConfigView(Dict[str, Any]):
         """Load configuration from string."""
         if self._view_path:
             raise RuntimeError("Only root config can be loaded")
-        config = Config.from_str(txt)
-        self._config.update(config)
+        self._config.load_str(txt)
 
     def load_file(self, fd: Union[str, Path, TextIO]) -> None:
         if self._view_path:
             raise RuntimeError("Only root config can be loaded")
-        config = Config.from_file(fd)
-        self._config.update(config)
+        self._config.load_file(fd)
+
+    def update(self, *args, **kwargs):
+        if self._view_path:
+            raise RuntimeError("Only root config can be updated")
+        self._config.update(*args, **kwargs)
 
     @contextmanager
     def enter(self, section: str):
