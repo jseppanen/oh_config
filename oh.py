@@ -1,4 +1,3 @@
-
 """
 The 0 (oh) config module provides simple configuration for machine learning
 experiments.
@@ -38,21 +37,19 @@ Some highlights:
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from io import StringIO
 import importlib
 import json
 import re
-from functools import partial
-from pathlib import Path
-
-from typing import Any, Callable, Dict, Iterator, Optional, List, TextIO, Tuple, Union
 from configparser import ConfigParser
 from contextlib import contextmanager
+from functools import partial
+from io import StringIO
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterator, List, Optional, TextIO, Tuple, Union
 
 
 class Config(dict):
-    """Tree of configuration values.
-    """
+    """Tree of configuration values."""
 
     def __call__(self, *pos_overrides, **kw_overrides) -> Any:
         """Call functions/types referenced in config.
@@ -77,6 +74,7 @@ class Config(dict):
     @property
     def flat(self) -> Dict[str, Any]:
         """Convenience access to nested config values."""
+
         def walk(dct: Dict, key: str) -> Any:
             if "." in key:
                 first, rest = key.split(".", 1)
@@ -112,6 +110,7 @@ class Config(dict):
             def __repr__(_) -> str:
                 keys = list(search(self))
                 return f"FlatConfig({', '.join(map(repr, keys))})"
+
         return FlatConfig()
 
     @classmethod
@@ -272,7 +271,7 @@ class InterpolatingJSONDecoder(json.JSONDecoder):
                     # refuse to interpolate nested values in strings
                     raise ParseError(
                         f'String interpolation "{string}" contains '
-                        f'non-scalar variable {key}: {value}'
+                        f"non-scalar variable {key}: {value}"
                     )
                 var_start, var_end = match.span()
                 interpolated += string[pos:var_start] + str(value)
@@ -298,15 +297,11 @@ def merge_args(defaults: Dict, *pos_overrides, **kw_overrides) -> Tuple[Tuple, D
     """Merge positional and keyword arguments."""
     # apply overrides
     merged = defaults.copy()
-    merged.update({
-        str(k): v for k, v in enumerate(pos_overrides)
-    })
+    merged.update({str(k): v for k, v in enumerate(pos_overrides)})
     merged.update(kw_overrides)
 
     # extract positional arguments
-    pos_args = sorted(
-        (int(k), v) for k, v in merged.items() if isintegral(k)
-    )
+    pos_args = sorted((int(k), v) for k, v in merged.items() if isintegral(k))
     if pos_args:
         pos, args = zip(*pos_args)
         if list(pos) != list(range(len(pos))):
@@ -332,6 +327,7 @@ class ConfigView(Dict[str, Any]):
     """View of a Config (sub)section.
     Used for traversing subsections with a context manager.
     """
+
     def __init__(self, config: Config):
         self._config = config
         self._view_path: List[str] = []
