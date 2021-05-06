@@ -33,12 +33,20 @@ def test_json_types(value):
 
 
 @given(numpy_scalar_dtypes)
-def test_numpy_types(dtype):
+def test_numpy_scalars(dtype):
     value = np.ones(1, dtype=dtype)[0]
     c = Config()
-    # c.x = np.int64(1)
     c.x = value
     assert isinstance(c.x, type(value.item())) and c.x == value.item()
+    json.dumps(c)  # this raises if values are not JSON compatible
+
+
+@given(numpy_scalar_dtypes)
+def test_numpy_arrays(dtype):
+    value = np.ones(5, dtype=dtype)
+    c = Config()
+    c.x = value
+    assert isinstance(c.x, type(value.tolist())) and c.x == value.tolist()
     json.dumps(c)  # this raises if values are not JSON compatible
 
 
