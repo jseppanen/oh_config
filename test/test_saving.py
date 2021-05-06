@@ -1,11 +1,9 @@
-
-import pickle
 import json
+import pickle
+
 from oh import Config
 
-
-TEST_CONFIG = \
-"""
+TEST_CONFIG = """
 [a]
 b = 1
 c = "fof"
