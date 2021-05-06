@@ -7,11 +7,11 @@ import oh
 oh.config.load_str(
 """
 [tokenizer]
-@call = transformers/BertTokenizer.from_pretrained
+@call = transformers:BertTokenizer.from_pretrained
 0 = "bert-base-uncased"
 
 [model]
-@call = transformers/BertModel.from_pretrained
+@call = transformers:BertModel.from_pretrained
 0 = "bert-base-uncased"
 """
 )

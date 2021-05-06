@@ -440,7 +440,7 @@ def resolve(name: str) -> Callable:
     global registry
     if not isinstance(name, str):
         raise TypeError(f"Name is not a string: {name}")
-    if "/" not in name:
+    if ":" not in name:
         # registry lookup
         name, attr_path = (name + ".").split(".", 1)
         if name not in registry:
@@ -451,9 +451,9 @@ def resolve(name: str) -> Callable:
         return obj
     else:
         # module import
-        if name.count("/") > 1:
-            raise ParseError(f"Too many slashes: {name}")
-        module_name, attr_path = name.split("/", 1)
+        if name.count(":") > 1:
+            raise ParseError(f"Expected <module>:<function>, got: {name}")
+        module_name, attr_path = name.split(":", 1)
         module = importlib.import_module(module_name)
         return nested_getattr(module, attr_path)
 

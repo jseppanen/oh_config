@@ -69,7 +69,7 @@ vector_width = ${hyper_params.vector_width}
 nr_classes = 17
 
 [optimizer]
-@call = thinc.api/Adam
+@call = thinc.api:Adam
 learn_rate = ${hyper_params.learn_rate}
 """
 

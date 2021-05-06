@@ -12,7 +12,7 @@ c = "fof"
 [d]
 e = ${a}
 [f]
-@call = pathlib/Path.cwd
+@call = pathlib:Path.cwd
 [g]
 x = ${a.c}
 """

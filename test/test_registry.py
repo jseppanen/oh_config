@@ -5,7 +5,7 @@ def test_module_import(oh):
     oh.config.load_str(
         """
         [main]
-        @call = pathlib/Path.cwd
+        @call = pathlib:Path.cwd
         """
     )
     res = oh.config.main()

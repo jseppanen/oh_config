@@ -90,11 +90,11 @@ chans3 = 128
 dropout = 0.5
 
 [training.optimizer]
-@call = torch.optim/Adadelta
+@call = torch.optim:Adadelta
 lr = ${training.lr}
 
 [training.scheduler]
-@call = torch.optim.lr_scheduler/StepLR
+@call = torch.optim.lr_scheduler:StepLR
 step_size = 1
 gamma = ${training.gamma}
 
