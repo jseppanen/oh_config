@@ -476,4 +476,7 @@ def dispatch(func: Callable, args: Tuple, kwargs: Dict) -> Any:
                 args_txt += ", "
             args_txt += ", ".join(f"{k}={repr(v)}" for k, v in kwargs.items())
         func_name = getattr(func, "__name__", "<unnamed callable>")
-        raise RuntimeError(f"Dispatch failed: {func_name}({args_txt})") from err
+        msg = (
+            f"Dispatch failed: {func_name}({args_txt}): {err.__class__.__name__}: {err}"
+        )
+        raise RuntimeError(msg) from err
