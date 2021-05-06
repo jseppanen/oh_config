@@ -39,6 +39,7 @@ Some highlights:
 
 import importlib
 import json
+import numbers
 import re
 from configparser import ConfigParser
 from contextlib import contextmanager
@@ -47,11 +48,23 @@ from io import StringIO
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, TextIO, Tuple, Union
 
+try:
+    # numpy is an optional dependency
+    from numpy import bool_ as np_bool
+    from numpy import ndarray as np_ndarray
+except ImportError:
+    np_bool = bool
+    np_ndarray = list
+
+
+JsonType = Union[None, bool, int, float, str, List["JsonType"], Dict[str, "JsonType"]]
+
 
 class ConfigDict(dict):
     """Dictionary for nested configuration.
 
     Supports convenient attribute access and callable sections.
+    Values are converted to JSON compatible types.
     """
 
     def __call__(self, *pos_overrides, **kw_overrides) -> Any:
@@ -67,7 +80,7 @@ class ConfigDict(dict):
         args, kwargs = merge_args(defaults, *pos_overrides, **kw_overrides)
         return dispatch(func, args, kwargs)
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str) -> JsonType:
         """Convenient attribute access to dictionary values."""
         if name not in self:
             raise AttributeError(f"dictionary has no key {repr(name)}")
@@ -82,9 +95,12 @@ class ConfigDict(dict):
         del self[name]
 
     def __setitem__(self, key: str, value: Any) -> None:
-        if isinstance(value, dict):
-            # support nested attribute access
-            value = ConfigDict(value)
+        """Set configuration values, with casting to JSON compatible types.
+        Casts numpy scalar types to standard (JSON compatible) types.
+        Casts mapping and sequence types to (JSON compatible) dicts and lists.
+        """
+        # support nested attribute access
+        value = cast(value, object_hook=ConfigDict)
         super().__setitem__(key, value)
 
 
@@ -92,10 +108,10 @@ class Config(ConfigDict):
     """Tree of configuration values."""
 
     @property
-    def flat(self) -> Dict[str, Any]:
+    def flat(self) -> Dict[str, JsonType]:
         """Convenience access to nested config values."""
 
-        def walk(dct: Dict, key: str) -> Any:
+        def walk(dct: Dict, key: str) -> JsonType:
             if "." in key:
                 first, rest = key.split(".", 1)
                 return walk(dct[first], rest)
@@ -110,7 +126,7 @@ class Config(ConfigDict):
                 else:
                     yield key
 
-        class FlatConfig(Dict[str, Any]):
+        class FlatConfig(Dict[str, JsonType]):
             def __contains__(_, key: object) -> bool:
                 try:
                     walk(self, str(key))
@@ -118,7 +134,7 @@ class Config(ConfigDict):
                 except KeyError:
                     return False
 
-            def __getitem__(_, key: str) -> Any:
+            def __getitem__(_, key: str) -> JsonType:
                 return walk(self, key)
 
             def __setitem__(_, key: str, value: Any) -> None:
@@ -260,6 +276,42 @@ class Config(ConfigDict):
                 node[key] = parsed_value
 
 
+def cast(value: Any, *, object_hook=None) -> JsonType:
+    """Cast config values to JSON compatible standard types."""
+
+    if value is None:
+        return None
+    elif isinstance(value, (bool, np_bool)):
+        # test bool before Integral
+        return bool(value)
+    elif isinstance(value, numbers.Integral):
+        # test Integral before Real
+        return int(value)
+    elif isinstance(value, numbers.Real):
+        return float(value)
+    elif isinstance(value, str):
+        return str(value)
+    elif isinstance(value, (list, tuple, np_ndarray)):
+        return [cast(v, object_hook=object_hook) for v in value]
+    elif isinstance(value, dict):
+
+        def check(key):
+            if not isinstance(key, str):
+                raise TypeError(
+                    f"not JSON compatible: key is not string: {repr(key)} in {repr(value)}"
+                )
+            return key
+
+        value = dict(
+            (check(k), cast(v, object_hook=object_hook)) for k, v in value.items()
+        )
+        if object_hook:
+            return object_hook(value)
+        return value
+    else:
+        raise TypeError(f"not JSON compatible: {type(value).__name__}: {repr(value)}")
+
+
 class ParseError(ValueError):
     pass
 
@@ -366,7 +418,7 @@ def isintegral(txt: str) -> bool:
         return False
 
 
-class ConfigView(Dict[str, Any]):
+class ConfigView(Dict[str, JsonType]):
     """View of a Config (sub)section.
     Used for traversing subsections with a context manager.
     """
@@ -375,14 +427,14 @@ class ConfigView(Dict[str, Any]):
         self._config = config
         self._view_path: List[str] = []
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str) -> JsonType:
         """Convenience attribute access to config values."""
         if name in self:
             return self[name]
         else:
             raise AttributeError(f"Configuration value not found: {name}")
 
-    def __getitem__(self, name: str) -> Any:
+    def __getitem__(self, name: str) -> JsonType:
         return self._node[name]
 
     def __iter__(self) -> Iterator[str]:
