@@ -48,8 +48,11 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, TextIO, Tuple, Union
 
 
-class Config(dict):
-    """Tree of configuration values."""
+class ConfigDict(dict):
+    """Dictionary for nested configuration.
+
+    Supports convenient attribute access and callable sections.
+    """
 
     def __call__(self, *pos_overrides, **kw_overrides) -> Any:
         """Call functions/types referenced in config.
@@ -65,11 +68,28 @@ class Config(dict):
         return dispatch(func, args, kwargs)
 
     def __getattr__(self, name: str) -> Any:
-        """Convenience attribute access to config values."""
-        if name in self:
-            return self[name]
-        else:
-            raise AttributeError(f"Configuration value not found: {name}")
+        """Convenient attribute access to dictionary values."""
+        if name not in self:
+            raise AttributeError(f"dictionary has no key {repr(name)}")
+        return self[name]
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Convenient attribute access to dictionary values."""
+        self[name] = value
+
+    def __delattr__(self, name: str) -> None:
+        """Convenient attribute access to dictionary values."""
+        del self[name]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        if isinstance(value, dict):
+            # support nested attribute access
+            value = ConfigDict(value)
+        super().__setitem__(key, value)
+
+
+class Config(ConfigDict):
+    """Tree of configuration values."""
 
     @property
     def flat(self) -> Dict[str, Any]:
@@ -100,6 +120,12 @@ class Config(dict):
 
             def __getitem__(_, key: str) -> Any:
                 return walk(self, key)
+
+            def __setitem__(_, key: str, value: Any) -> None:
+                raise KeyError("not supported")
+
+            def __delitem__(_, key: str) -> None:
+                raise KeyError("not supported")
 
             def __iter__(_) -> Iterator[str]:
                 return search(self)
@@ -202,13 +228,13 @@ class Config(dict):
             node = self
             for part in parts[:-1]:
                 if part not in node:
-                    node = node.setdefault(part, Config())
+                    node = node.setdefault(part, ConfigDict())
                 else:
                     node = node[part]
             if not isinstance(node, dict):
                 raise ParseError(f"Found conflicting values for {parts}")
             # Set the default section
-            node = node.setdefault(parts[-1], Config())
+            node = node.setdefault(parts[-1], ConfigDict())
             for key, value in values.items():
                 # parse key
                 if key.startswith("@"):
