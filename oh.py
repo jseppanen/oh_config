@@ -491,7 +491,7 @@ class ConfigView(Dict[str, JsonData]):
         for part in parts:
             if part not in self._node:
                 raise KeyError(f"No such configuration section: {part}")
-            elif not isinstance(self._node[part], Config):
+            elif not isinstance(self._node[part], ConfigDict):
                 raise KeyError(f"Not a section: {part}: {self._node[part]}")
             else:
                 self._view_path.append(part)
