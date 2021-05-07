@@ -95,11 +95,27 @@ class ConfigDict(dict):
         """Convenient attribute access to dictionary values."""
         del self[name]
 
-    def __setitem__(self, key: str, value: Any) -> None:
+    def __getitem__(self, key: Union[int, str]) -> JsonData:
+        """Get configuration values.
+        Integer string keys can be accessed by both integer and string types.
+        """
+        if isint(key):
+            # integral keys are used for positional arguments
+            if key < 0:
+                raise ValueError(f"Negative integer keys are not valid: {key}")
+            key = str(key)
+        return super().__getitem__(key)
+
+    def __setitem__(self, key: Union[int, str], value: Any) -> None:
         """Set configuration values, with casting to JSON compatible types.
         Casts numpy scalar types to standard (JSON compatible) types.
         Casts mapping and sequence types to (JSON compatible) dicts and lists.
         """
+        if isint(key):
+            # integral keys are used for positional arguments
+            if key < 0:
+                raise ValueError(f"Negative integer keys are not valid: {key}")
+            key = str(key)
         if not isinstance(key, str):
             raise TypeError(f"not JSON compatible: key is not string: {repr(key)}")
         # support nested attribute access
@@ -223,7 +239,7 @@ class Config(ConfigDict):
                 if key.startswith("@"):
                     raise SaveError(f"illegal key at {path}: {repr(key)}")
                 str_value = "${" + str(value) + "}"
-            elif key.startswith("@") or isintegral(key):
+            elif key.startswith("@") or isintegral_str(key):
                 # special @ key, values are unquoted strings
                 # integral key, values are integers
                 str_value = str(value)
@@ -260,7 +276,7 @@ class Config(ConfigDict):
                     # special @ key, values are plain unquoted strings
                     node[key] = str(value)
                     continue
-                elif isintegral(key):
+                elif isintegral_str(key):
                     # integral key, used for positional arguments
                     pos = int(key)
                     if pos < 0:
@@ -298,7 +314,12 @@ def cast(value: Any, *, object_hook=None) -> JsonData:
         return [cast(v, object_hook=object_hook) for v in value]
     elif isinstance(value, dict):
 
-        def check(key):
+        def check(key: Union[int, str]) -> str:
+            if isint(key):
+                # integral keys are used for positional arguments
+                if key < 0:
+                    raise ValueError(f"Negative integer keys are not valid: {key}")
+                key = str(key)
             if not isinstance(key, str):
                 raise TypeError(
                     f"not JSON compatible: key is not string: {repr(key)} in {repr(value)}"
@@ -399,7 +420,7 @@ def merge_args(defaults: Dict, *pos_overrides, **kw_overrides) -> Tuple[Tuple, D
     merged.update(kw_overrides)
 
     # extract positional arguments
-    pos_args = sorted((int(k), v) for k, v in merged.items() if isintegral(k))
+    pos_args = sorted((int(k), v) for k, v in merged.items() if isintegral_str(k))
     if pos_args:
         pos, args = zip(*pos_args)
         if list(pos) != list(range(len(pos))):
@@ -408,12 +429,20 @@ def merge_args(defaults: Dict, *pos_overrides, **kw_overrides) -> Tuple[Tuple, D
         args = ()
 
     # extract keyword arguments
-    kwargs = {k: v for k, v in merged.items() if not isintegral(k)}
+    kwargs = {k: v for k, v in merged.items() if not isintegral_str(k)}
 
     return args, kwargs
 
 
-def isintegral(txt: str) -> bool:
+def isint(x: Any) -> bool:
+    """Return true iff argument is an integer."""
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
+def isintegral_str(txt: str) -> bool:
+    """Return true iff argument is an integer string."""
+    if not isinstance(txt, str):
+        return False
     try:
         int(txt)
         return True
