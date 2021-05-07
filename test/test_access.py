@@ -41,6 +41,24 @@ def test_dict_access():
     assert c["c"]["c"] == 44
     assert c["c"]["d"]["z"]["hello"] == "world"
 
+    with pytest.raises(TypeError):
+        c["a"][5] = 5
+
+    with pytest.raises(TypeError):
+        c["a"][5.0] = 5
+
+    with pytest.raises(TypeError):
+        c["a"][True] = 5
+
+    with pytest.raises(TypeError):
+        c["a"][None] = 5
+
+    with pytest.raises(TypeError):
+        c["a"][(1, 2)] = 5
+
+    with pytest.raises(TypeError):
+        c["a"][[1, 2]] = 5
+
 
 def test_flat_access():
     c = Config.from_str(

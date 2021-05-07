@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 from math import isnan
 from string import printable
@@ -29,7 +30,12 @@ def test_json_types(value):
     c = Config()
     c.x = value
     assert isinstance(c.x, type(value))
-    assert c.x == value or (isinstance(value, float) and isnan(value))
+    assert c.x == value or (
+        isinstance(c.x, float)
+        and isnan(c.x)
+        and isinstance(value, float)
+        and isnan(value)
+    )
     json.dumps(c)  # this raises if values are not JSON compatible
 
 
@@ -43,8 +49,17 @@ def test_numpy_scalars(dtype):
 
 
 @given(numpy_scalar_dtypes)
-def test_numpy_arrays(dtype):
+def test_1d_numpy_arrays(dtype):
     value = np.ones(5, dtype=dtype)
+    c = Config()
+    c.x = value
+    assert isinstance(c.x, type(value.tolist())) and c.x == value.tolist()
+    json.dumps(c)  # this raises if values are not JSON compatible
+
+
+@given(numpy_scalar_dtypes)
+def test_2d_numpy_arrays(dtype):
+    value = np.ones((5, 5), dtype=dtype)
     c = Config()
     c.x = value
     assert isinstance(c.x, type(value.tolist())) and c.x == value.tolist()
@@ -55,3 +70,12 @@ def test_illegal_types():
     c = Config()
     with pytest.raises(TypeError):
         c.x = {1: 2}
+
+    with pytest.raises(TypeError):
+        c.x = b"ugh"
+
+    with pytest.raises(TypeError):
+        c.x = dt.datetime.utcnow()
+
+    with pytest.raises(TypeError):
+        c.x = dt.timedelta(days=1)
