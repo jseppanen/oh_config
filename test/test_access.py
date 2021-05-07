@@ -1,3 +1,7 @@
+import json
+from typing import Any
+
+import numpy as np
 import pytest
 
 from oh import Config
@@ -27,22 +31,29 @@ def test_dict_access():
     c = Config.from_str(
         """
         [a]
+        0 = -1
         x = 42
         [c.d]
         z = {"hello": "world"}
         """
     )
-    assert c == {"a": {"x": 42}, "c": {"d": {"z": {"hello": "world"}}}}
+    assert c == {"a": {"0": -1, "x": 42}, "c": {"d": {"z": {"hello": "world"}}}}
 
     c["a"]["y"] = 43
     c["c"]["c"] = 44
+    assert c["a"]["0"] == -1
     assert c["a"]["x"] == 42
     assert c["a"]["y"] == 43
     assert c["c"]["c"] == 44
     assert c["c"]["d"]["z"]["hello"] == "world"
 
-    with pytest.raises(TypeError):
-        c["a"][5] = 5
+    # test integer access
+    assert c["a"][0] == -1
+    c["a"][5] = 5
+    assert c["a"][5] == 5
+
+    with pytest.raises(ValueError):
+        c["a"][-5] = 5
 
     with pytest.raises(TypeError):
         c["a"][5.0] = 5
@@ -82,3 +93,25 @@ def test_flat_access():
 
     with pytest.raises(KeyError):
         del c.flat["a.x"]
+
+
+def test_update():
+    c = Config.from_str(
+        """
+        [a]
+        x = 42
+        [b.c]
+        y = "asdf"
+        """
+    )
+    c.update({"b": {"d": 2}})
+    assert c == {"a": {"x": 42}, "b": {"d": 2}}
+
+    c.update({"b": {"d": np.int64(64)}})
+    assert c == {"a": {"x": 42}, "b": {"d": 64}}
+    assert_valid_json(c)
+
+
+def assert_valid_json(data: Any) -> None:
+    """Test that data is serializable as plain JSON."""
+    json.dumps(data)

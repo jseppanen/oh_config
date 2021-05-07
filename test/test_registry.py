@@ -30,7 +30,25 @@ def test_register_class(oh):
 
 
 def test_register_function(oh):
+    # naked decorator syntax
     @oh.register
+    def foo(x):
+        return x + 1
+
+    oh.config.load_str(
+        """
+        [main]
+        @call = foo
+        0 = 42
+        """
+    )
+    res = oh.config.main()
+    assert res == 43
+
+
+def test_register_function2(oh):
+    # function call decorator syntax
+    @oh.register()
     def foo(x):
         return x + 1
 

@@ -1,3 +1,7 @@
+import pytest
+
+from oh import ParseError
+
 
 def test_positional_args(oh):
     @oh.register
@@ -14,6 +18,15 @@ def test_positional_args(oh):
     )
     res = oh.config.main(1)
     assert res == "OK"
+
+    with pytest.raises(ParseError):
+        oh.config.load_str(
+            """
+            [main]
+            @call = fun
+            -1 = 42
+            """
+        )
 
 
 def test_keyword_args(oh):

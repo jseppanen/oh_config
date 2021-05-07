@@ -1,7 +1,9 @@
 import datetime as dt
 import json
+from decimal import Decimal
 from math import isnan
 from string import printable
+from typing import Any
 
 import numpy as np
 import pytest
@@ -36,7 +38,7 @@ def test_json_types(value):
         and isinstance(value, float)
         and isnan(value)
     )
-    json.dumps(c)  # this raises if values are not JSON compatible
+    assert_valid_json(c)
 
 
 @given(numpy_scalar_dtypes)
@@ -45,7 +47,7 @@ def test_numpy_scalars(dtype):
     c = Config()
     c.x = value
     assert isinstance(c.x, type(value.item())) and c.x == value.item()
-    json.dumps(c)  # this raises if values are not JSON compatible
+    assert_valid_json(c)
 
 
 @given(numpy_scalar_dtypes)
@@ -54,7 +56,7 @@ def test_1d_numpy_arrays(dtype):
     c = Config()
     c.x = value
     assert isinstance(c.x, type(value.tolist())) and c.x == value.tolist()
-    json.dumps(c)  # this raises if values are not JSON compatible
+    assert_valid_json(c)
 
 
 @given(numpy_scalar_dtypes)
@@ -63,13 +65,13 @@ def test_2d_numpy_arrays(dtype):
     c = Config()
     c.x = value
     assert isinstance(c.x, type(value.tolist())) and c.x == value.tolist()
-    json.dumps(c)  # this raises if values are not JSON compatible
+    assert_valid_json(c)
 
 
 def test_illegal_types():
     c = Config()
     with pytest.raises(TypeError):
-        c.x = {1: 2}
+        c.x = {None: 2}
 
     with pytest.raises(TypeError):
         c.x = b"ugh"
@@ -79,3 +81,14 @@ def test_illegal_types():
 
     with pytest.raises(TypeError):
         c.x = dt.timedelta(days=1)
+
+    with pytest.raises(TypeError):
+        c.x = Decimal("3.3")
+
+    with pytest.raises(TypeError):
+        c.x = complex(1, 2)
+
+
+def assert_valid_json(data: Any) -> None:
+    """Test that data is serializable as plain JSON."""
+    json.dumps(data)
