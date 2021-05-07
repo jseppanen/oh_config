@@ -57,14 +57,15 @@ except ImportError:
     np_ndarray = list
 
 
-JsonType = Union[None, bool, int, float, str, List["JsonType"], Dict[str, "JsonType"]]
+# ints are not strictly json but they're important & supported by Python's json module
+JsonData = Union[None, bool, int, float, str, List["JsonData"], Dict[str, "JsonData"]]
 
 
 class ConfigDict(dict):
     """Dictionary for nested configuration.
 
     Supports convenient attribute access and callable sections.
-    Values are converted to JSON compatible types.
+    Values are converted to JSON compatible types (plus ints).
     """
 
     def __call__(self, *pos_overrides, **kw_overrides) -> Any:
@@ -80,7 +81,7 @@ class ConfigDict(dict):
         args, kwargs = merge_args(defaults, *pos_overrides, **kw_overrides)
         return dispatch(func, args, kwargs)
 
-    def __getattr__(self, name: str) -> JsonType:
+    def __getattr__(self, name: str) -> JsonData:
         """Convenient attribute access to dictionary values."""
         if name not in self:
             raise AttributeError(f"dictionary has no key {repr(name)}")
@@ -108,10 +109,10 @@ class Config(ConfigDict):
     """Tree of configuration values."""
 
     @property
-    def flat(self) -> Dict[str, JsonType]:
+    def flat(self) -> Dict[str, JsonData]:
         """Convenience access to nested config values."""
 
-        def walk(dct: Dict, key: str) -> JsonType:
+        def walk(dct: Dict, key: str) -> JsonData:
             if "." in key:
                 first, rest = key.split(".", 1)
                 return walk(dct[first], rest)
@@ -126,7 +127,7 @@ class Config(ConfigDict):
                 else:
                     yield key
 
-        class FlatConfig(Dict[str, JsonType]):
+        class FlatConfig(Dict[str, JsonData]):
             def __contains__(_, key: object) -> bool:
                 try:
                     walk(self, str(key))
@@ -134,7 +135,7 @@ class Config(ConfigDict):
                 except KeyError:
                     return False
 
-            def __getitem__(_, key: str) -> JsonType:
+            def __getitem__(_, key: str) -> JsonData:
                 return walk(self, key)
 
             def __setitem__(_, key: str, value: Any) -> None:
@@ -276,7 +277,7 @@ class Config(ConfigDict):
                 node[key] = parsed_value
 
 
-def cast(value: Any, *, object_hook=None) -> JsonType:
+def cast(value: Any, *, object_hook=None) -> JsonData:
     """Cast config values to JSON compatible standard types."""
 
     if value is None:
@@ -418,7 +419,7 @@ def isintegral(txt: str) -> bool:
         return False
 
 
-class ConfigView(Dict[str, JsonType]):
+class ConfigView(Dict[str, JsonData]):
     """View of a Config (sub)section.
     Used for traversing subsections with a context manager.
     """
@@ -427,14 +428,14 @@ class ConfigView(Dict[str, JsonType]):
         self._config = config
         self._view_path: List[str] = []
 
-    def __getattr__(self, name: str) -> JsonType:
+    def __getattr__(self, name: str) -> JsonData:
         """Convenience attribute access to config values."""
         if name in self:
             return self[name]
         else:
             raise AttributeError(f"Configuration value not found: {name}")
 
-    def __getitem__(self, name: str) -> JsonType:
+    def __getitem__(self, name: str) -> JsonData:
         return self._node[name]
 
     def __iter__(self) -> Iterator[str]:

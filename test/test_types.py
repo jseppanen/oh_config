@@ -10,6 +10,7 @@ from hypothesis.extra import numpy as nst
 
 from oh import Config
 
+# ints are not strictly json but they're important & supported by Python's json module
 jsons = st.recursive(
     st.none() | st.booleans() | st.integers() | st.floats() | st.text(printable),
     lambda children: st.lists(children) | st.dictionaries(st.text(printable), children),
