@@ -29,8 +29,7 @@ numpy_scalar_dtypes = st.one_of(
 
 @given(jsons)
 def test_json_types(value):
-    c = Config()
-    c.x = value
+    c = Config({"x": value})
     assert isinstance(c.x, type(value))
     assert c.x == value or (
         isinstance(c.x, float)
@@ -44,8 +43,7 @@ def test_json_types(value):
 @given(numpy_scalar_dtypes)
 def test_numpy_scalars(dtype):
     value = np.ones(1, dtype=dtype)[0]
-    c = Config()
-    c.x = value
+    c = Config({"x": value})
     assert isinstance(c.x, type(value.item())) and c.x == value.item()
     assert_valid_json(c)
 
@@ -53,8 +51,7 @@ def test_numpy_scalars(dtype):
 @given(numpy_scalar_dtypes)
 def test_1d_numpy_arrays(dtype):
     value = np.ones(5, dtype=dtype)
-    c = Config()
-    c.x = value
+    c = Config({"x": value})
     assert isinstance(c.x, type(value.tolist())) and c.x == value.tolist()
     assert_valid_json(c)
 
@@ -62,31 +59,29 @@ def test_1d_numpy_arrays(dtype):
 @given(numpy_scalar_dtypes)
 def test_2d_numpy_arrays(dtype):
     value = np.ones((5, 5), dtype=dtype)
-    c = Config()
-    c.x = value
+    c = Config({"x": value})
     assert isinstance(c.x, type(value.tolist())) and c.x == value.tolist()
     assert_valid_json(c)
 
 
 def test_illegal_types():
-    c = Config()
     with pytest.raises(TypeError):
-        c.x = {None: 2}
+        Config({"x": {None: 2}})
 
     with pytest.raises(TypeError):
-        c.x = b"ugh"
+        Config({"x": b"ugh"})
 
     with pytest.raises(TypeError):
-        c.x = dt.datetime.utcnow()
+        Config({"x": dt.datetime.utcnow()})
 
     with pytest.raises(TypeError):
-        c.x = dt.timedelta(days=1)
+        Config({"x": dt.timedelta(days=1)})
 
     with pytest.raises(TypeError):
-        c.x = Decimal("3.3")
+        Config({"x": Decimal("3.3")})
 
     with pytest.raises(TypeError):
-        c.x = complex(1, 2)
+        Config({"x": complex(1, 2)})
 
 
 def assert_valid_json(data: Any) -> None:

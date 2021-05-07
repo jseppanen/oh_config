@@ -46,7 +46,19 @@ from contextlib import contextmanager
 from functools import partial
 from io import StringIO
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Optional, TextIO, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    TextIO,
+    Tuple,
+    Union,
+)
 
 try:
     # numpy is an optional dependency
@@ -67,6 +79,12 @@ class ConfigDict(dict):
     Supports convenient attribute access and callable sections.
     Values are converted to JSON compatible types (plus ints).
     """
+
+    def __init__(
+        self, data: Optional[Union[Mapping, Iterable]] = None, **kwargs
+    ) -> None:
+        super().__init__()
+        self.update(data, **kwargs)
 
     def __call__(self, *pos_overrides, **kw_overrides) -> Any:
         """Call functions/types referenced in config.
@@ -121,6 +139,36 @@ class ConfigDict(dict):
         # support nested attribute access
         value = cast(value, object_hook=ConfigDict)
         super().__setitem__(key, value)
+
+    def merge(self, other: dict) -> None:
+        """Update config with additional contents from another configuration.
+        Dict keys are merged, identical keys are overridden.
+        """
+        for key in other:
+            if key in self and isinstance(self[key], ConfigDict):
+                if not isinstance(other[key], dict):
+                    raise ValueError(
+                        f"Found conflicting values for {repr(key)}: {repr(other[key])}"
+                    )
+                self[key].merge(other[key])
+            else:
+                self[key] = other[key]
+
+    def update(
+        self, other: Optional[Union[Mapping, Iterable]] = None, **kwargs
+    ) -> None:
+        """Update config with values from other dict(s) or key-value lists.
+        Dictionary keys are always overwritten.
+        """
+        if other:
+            if hasattr(other, "keys"):
+                for key in other.keys():
+                    self[key] = other[key]
+            else:
+                for key, value in other:
+                    self[key] = value
+        for key, value in kwargs.items():
+            self[key] = value
 
 
 class Config(ConfigDict):
