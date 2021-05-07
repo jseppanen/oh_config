@@ -100,6 +100,8 @@ class ConfigDict(dict):
         Casts numpy scalar types to standard (JSON compatible) types.
         Casts mapping and sequence types to (JSON compatible) dicts and lists.
         """
+        if not isinstance(key, str):
+            raise TypeError(f"not JSON compatible: key is not string: {repr(key)}")
         # support nested attribute access
         value = cast(value, object_hook=ConfigDict)
         super().__setitem__(key, value)
