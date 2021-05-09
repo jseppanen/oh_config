@@ -2,7 +2,7 @@ import datetime as dt
 import json
 from decimal import Decimal
 from math import isnan
-from string import printable
+from string import ascii_letters
 from typing import Any
 
 import numpy as np
@@ -15,8 +15,11 @@ from oh import Config
 
 # ints are not strictly json but they're important & supported by Python's json module
 jsons = st.recursive(
-    st.none() | st.booleans() | st.integers() | st.floats() | st.text(printable),
-    lambda children: st.lists(children) | st.dictionaries(st.text(printable), children),
+    st.none() | st.booleans() | st.integers() | st.floats() | st.text(),
+    lambda children: (
+        st.lists(children)
+        | st.dictionaries(st.text(ascii_letters, min_size=1), children)
+    ),
 )
 
 numpy_scalar_dtypes = st.one_of(

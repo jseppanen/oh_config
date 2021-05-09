@@ -71,6 +71,7 @@ except ImportError:
 
 # ints are not strictly json but they're important & supported by Python's json module
 JsonData = Union[None, bool, int, float, str, List["JsonData"], Dict[str, "JsonData"]]
+JsonSchema = Union[str, List["JsonSchema"], Dict[str, "JsonSchema"]]
 
 
 class ConfigDict(dict):
@@ -78,13 +79,14 @@ class ConfigDict(dict):
 
     Supports convenient attribute access and callable sections.
     Values are converted to JSON compatible types (plus ints).
+    This class validates the types of configuration values against their schema.
+    The schema is inferred from the initial configuration entries, and it can
+    later be appended to, but not changed.
     """
 
-    def __init__(
-        self, data: Optional[Union[Mapping, Iterable]] = None, **kwargs
-    ) -> None:
-        super().__init__()
-        self.update(data, **kwargs)
+    def __init__(self, data: Optional[Union[Mapping, Iterable]] = None) -> None:
+        # XXX data needs to have been cast_as_json(., object_hook=ConfigDict)
+        super().__init__(data or {})
 
     def __call__(self, *pos_overrides, **kw_overrides) -> Any:
         """Call functions/types referenced in config.
@@ -102,90 +104,206 @@ class ConfigDict(dict):
     def __getattr__(self, name: str) -> JsonData:
         """Convenient attribute access to dictionary values."""
         if name not in self:
-            raise AttributeError(f"dictionary has no key {repr(name)}")
+            raise AttributeError(f"ConfigDict has no key {repr(name)}")
         return self[name]
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Convenient attribute access to dictionary values."""
-        self[name] = value
+        if name.startswith("_"):
+            super().__setattr__(name, value)
+        else:
+            self[name] = value
 
     def __delattr__(self, name: str) -> None:
-        """Convenient attribute access to dictionary values."""
-        del self[name]
+        raise ValidationError("ConfigDict keys are immutable")
 
     def __getitem__(self, key: Union[int, str]) -> JsonData:
         """Get configuration values.
         Integer string keys can be accessed by both integer and string types.
         """
-        if isint(key):
-            # integral keys are used for positional arguments
-            if key < 0:
-                raise ValueError(f"Negative integer keys are not valid: {key}")
-            key = str(key)
+        key = cast_as_json_key(key)
         return super().__getitem__(key)
 
     def __setitem__(self, key: Union[int, str], value: Any) -> None:
         """Set configuration values, with casting to JSON compatible types.
         Casts numpy scalar types to standard (JSON compatible) types.
         Casts mapping and sequence types to (JSON compatible) dicts and lists.
+        Validates the resulting types against the built-in configuration schema.
         """
-        if isint(key):
-            # integral keys are used for positional arguments
-            if key < 0:
-                raise ValueError(f"Negative integer keys are not valid: {key}")
-            key = str(key)
-        if not isinstance(key, str):
-            raise TypeError(f"not JSON compatible: key is not string: {repr(key)}")
-        # support nested attribute access
-        value = cast(value, object_hook=ConfigDict)
+        key = cast_as_json_key(key)
+        if key not in self:
+            raise ValidationError(f"invalid key: {repr(key)}")
+        value = cast_as_json(value, object_hook=ConfigDict)
+        validate(self[key], value)
         super().__setitem__(key, value)
 
-    def merge(self, other: dict) -> None:
-        """Update config with additional contents from another configuration.
-        Dict keys are merged, identical keys are overridden.
-        """
-        for key in other:
-            if key in self and isinstance(self[key], ConfigDict):
-                if not isinstance(other[key], dict):
-                    raise ValueError(
-                        f"Found conflicting values for {repr(key)}: {repr(other[key])}"
-                    )
-                self[key].merge(other[key])
-            else:
-                self[key] = other[key]
+    def __delitem__(self, key: Any) -> None:
+        raise ValidationError("ConfigDict keys are immutable")
+
+    def __reduce_ex__(self, protocol):
+        """Pickling support."""
+        return type(self), (dict(self),)
+
+    def setdefault(
+        self, key: Union[int, str], default: Optional[Any] = None
+    ) -> JsonData:
+        key = cast_as_json_key(key)
+        if key not in self:
+            raise ValidationError(f"invalid key: {repr(key)}")
+        return self[key]
+
+    def pop(self, key, default=None) -> JsonData:
+        raise ValidationError("ConfigDict keys are immutable")
+
+    def popitem(self) -> Tuple[str, JsonData]:
+        raise ValidationError("ConfigDict keys are immutable")
+
+    def clear(self) -> None:
+        raise ValidationError("ConfigDict keys are immutable")
 
     def update(
-        self, other: Optional[Union[Mapping, Iterable]] = None, **kwargs
+        self,
+        other: Optional[Union[Mapping, Iterable]] = None,
+        *,
+        merge_schema: bool = False,
+        **kwargs,
     ) -> None:
         """Update config with values from other dict(s) or key-value lists.
-        Dictionary keys are always overwritten.
+        The types of existing keys cannot be changed, but new keys can be added
+        with `merge_schema = True`.
         """
-        if other:
-            if hasattr(other, "keys"):
-                for key in other.keys():
-                    self[key] = other[key]
-            else:
-                for key, value in other:
-                    self[key] = value
-        for key, value in kwargs.items():
-            self[key] = value
+
+        def kvs():
+            # dict.update(.) compatible argument handling
+            if other:
+                if hasattr(other, "keys"):
+                    for key in other.keys():
+                        yield key, other[key]
+                else:
+                    for key, value in other:
+                        yield key, value
+            for key, value in kwargs.items():
+                yield key, value
+
+        if not self:
+            # initial unvalidated update
+            # XXX cast_as_json
+            super().update(kvs())
+
+        else:
+            for key, value in kvs():
+                key = cast_as_json_key(key)
+                if key in self:
+                    if isinstance(self[key], ConfigDict):
+                        if not isinstance(value, dict):
+                            raise ValueError(
+                                f"Found conflicting values for {repr(key)}: {repr(value)}"
+                            )
+                        self[key].update(value, merge_schema=merge_schema)
+                    else:
+                        self[key] = value
+                elif merge_schema:
+                    # add new keys without validation
+                    value = cast_as_json(value, object_hook=ConfigDict)
+                    super().__setitem__(key, value)
+                else:
+                    raise ValidationError(f"invalid key: {repr(key)}")
 
 
 class Config(ConfigDict):
-    """Tree of configuration values."""
+    """Tree of configuration values.
+
+    This class validates the types of configuration values against their schema.
+    The schema is inferred from the initial configuration entries, and it can
+    later be appended to, but not changed.
+    """
+
+    def __init__(self, data: Optional[dict] = None) -> None:
+        data = cast_as_json(data, object_hook=ConfigDict)
+        super().__init__(data)
 
     @property
-    def flat(self) -> Dict[str, JsonData]:
-        """Convenience access to nested config values."""
+    def flat(self) -> Mapping[str, JsonData]:
+        """Convenience read-only access to nested config values."""
+        return FlatDictProxy(self)
 
-        def walk(dct: Dict, key: str) -> JsonData:
+    @classmethod
+    def from_str(cls, txt: str, *, interpolate: bool = True) -> "Config":
+        """Load configuration from string."""
+        parsed = parse_config(txt, interpolate=interpolate)
+        return cls(parsed)
+
+    @classmethod
+    def from_file(
+        cls, fd: Union[str, Path, TextIO], *, interpolate: bool = True
+    ) -> "Config":
+        """Load configuration from file."""
+        if isinstance(fd, (str, Path)):
+            fd = open(fd)
+        txt = fd.read()
+        parsed = parse_config(txt, interpolate=interpolate)
+        return cls(parsed)
+
+    @classmethod
+    def from_json(cls, data: str) -> "Config":
+        """Load configuration from JSON string."""
+        parsed = json.loads(data)
+        return cls(parsed)
+
+    def load_str(
+        self, txt: str, *, interpolate: bool = True, merge_schema: bool = False
+    ) -> None:
+        """Load configuration from string."""
+        config = Config.from_str(txt, interpolate=interpolate)
+        self.update(config, merge_schema=merge_schema)
+
+    def load_file(
+        self,
+        fd: Union[str, Path, TextIO],
+        *,
+        interpolate: bool = True,
+        merge_schema: bool = False,
+    ) -> None:
+        """Load configuration from file."""
+        config = Config.from_file(fd, interpolate=interpolate)
+        self.update(config, merge_schema=merge_schema)
+
+    def load_json(self, data: str) -> None:
+        """Load configuration from JSON string."""
+        parsed = json.loads(data)
+        config = Config(parsed)
+        self.update(config)
+
+    def to_str(self) -> str:
+        """Write the config to a string."""
+        return dump_config(self)
+
+
+class FlatDictProxy(Mapping[str, JsonData]):
+    """Immutable proxy for accessing nested dictionary values as flat dictionary."""
+
+    def __init__(self, dct: dict) -> None:
+        self.dct = dct
+
+    def __contains__(self, key: object) -> bool:
+        try:
+            self[str(key)]
+            return True
+        except KeyError:
+            return False
+
+    def __getitem__(self, key: str) -> JsonData:
+        def walk(dct: Mapping, key: str) -> JsonData:
             if "." in key:
                 first, rest = key.split(".", 1)
                 return walk(dct[first], rest)
             else:
                 return dct[key]
 
-        def search(dct: Dict) -> Iterator[str]:
+        return walk(self.dct, key)
+
+    def __iter__(self) -> Iterator[str]:
+        def search(dct: Mapping) -> Iterator[str]:
             for key, value in dct.items():
                 if isinstance(value, dict):
                     for subkey in search(value):
@@ -193,157 +311,125 @@ class Config(ConfigDict):
                 else:
                     yield key
 
-        class FlatConfig(Dict[str, JsonData]):
-            def __contains__(_, key: object) -> bool:
-                try:
-                    walk(self, str(key))
-                    return True
-                except KeyError:
-                    return False
+        return search(self.dct)
 
-            def __getitem__(_, key: str) -> JsonData:
-                return walk(self, key)
+    def __len__(self) -> int:
+        return sum(1 for _ in iter(self))
 
-            def __setitem__(_, key: str, value: Any) -> None:
-                raise KeyError("not supported")
+    def __repr__(self) -> str:
+        keys = list(self)
+        return f"FlatDictProxy({', '.join(map(repr, keys))})"
 
-            def __delitem__(_, key: str) -> None:
-                raise KeyError("not supported")
 
-            def __iter__(_) -> Iterator[str]:
-                return search(self)
+def parse_config(txt: str, *, interpolate: bool = True) -> Dict[str, Any]:
+    """Parse configuration from string."""
 
-            def __len__(_) -> int:
-                return sum(1 for _ in search(self))
+    parser = ConfigParser(
+        interpolation=None,
+        delimiters=["="],
+        comment_prefixes=["#"],
+        inline_comment_prefixes=["#"],
+        strict=True,
+        empty_lines_in_values=False,
+    )
+    parser.optionxform = str  # type: ignore
+    parser.read_string(txt)
+    if parser.defaults():
+        raise ParseError("Found config values outside of any section")
 
-            def __repr__(_) -> str:
-                keys = list(search(self))
-                return f"FlatConfig({', '.join(map(repr, keys))})"
+    result: Dict[str, Any] = {}
+    json_parser = InterpolatingJSONDecoder(
+        FlatDictProxy(result) if interpolate else None
+    )
 
-        return FlatConfig()
-
-    @classmethod
-    def from_str(cls, txt: str, *, interpolate: bool = True) -> "Config":
-        """Load configuration from string."""
-        config = Config()
-        config.load_str(txt, interpolate=interpolate)
-        return config
-
-    @classmethod
-    def from_file(
-        cls, fd: Union[str, Path, TextIO], *, interpolate: bool = True
-    ) -> "Config":
-        """Load configuration from file."""
-        config = Config()
-        config.load_file(fd, interpolate=interpolate)
-        return config
-
-    @classmethod
-    def from_json(cls, data: str) -> "Config":
-        """Load configuration from JSON string."""
-        parsed = json.loads(data)
-        return Config(parsed)
-
-    def load_str(self, txt: str, *, interpolate: bool = True) -> None:
-        """Load configuration from string."""
-        parser = ConfigParser(
-            interpolation=None,
-            delimiters=["="],
-            comment_prefixes=["#"],
-            inline_comment_prefixes=["#"],
-            strict=True,
-            empty_lines_in_values=False,
-        )
-        parser.optionxform = str  # type: ignore
-        parser.read_string(txt)
-        self._update(parser, interpolate=interpolate)
-
-    def load_file(
-        self, fd: Union[str, Path, TextIO], *, interpolate: bool = True
-    ) -> None:
-        """Load configuration from file."""
-        if isinstance(fd, (str, Path)):
-            fd = open(fd)
-        self.load_str(fd.read(), interpolate=interpolate)
-
-    def load_json(self, data: str) -> None:
-        """Load configuration from JSON string."""
-        parsed = json.loads(data)
-        self.update(parsed)
-
-    def to_str(self) -> str:
-        """Write the config to a string."""
-        writer = ConfigParser()
-        for path in self.flat:
-            if "." not in path:
-                raise SaveError(f"section missing from {repr(path)}")
-            section, key = path.rsplit(".", 1)
-            value = self.flat[path]
-            if key == "@ref":
-                # restore interpolation syntax
-                if "." not in section:
-                    raise SaveError(f"section missing from {repr(section)}")
-                section, key = section.rsplit(".", 1)
-                if key.startswith("@"):
-                    raise SaveError(f"illegal key at {path}: {repr(key)}")
-                str_value = "${" + str(value) + "}"
-            elif key.startswith("@") or isintegral_str(key):
-                # special @ key, values are unquoted strings
-                # integral key, values are integers
-                str_value = str(value)
+    for section, values in parser.items():
+        if section == "DEFAULT":
+            continue
+        parts = section.split(".")
+        node = result
+        for part in parts[:-1]:
+            if part not in node:
+                node = node.setdefault(part, {})
             else:
-                str_value = json.dumps(value)
-            if not writer.has_section(section):
-                writer.add_section(section)
-            writer.set(section, key, str_value)
-        buf = StringIO()
-        writer.write(buf)
-        return buf.getvalue().strip()
-
-    def _update(self, parser: ConfigParser, *, interpolate: bool = True) -> None:
-        if parser.defaults():
-            raise ParseError("Found config values outside of any section")
-        json_parser = InterpolatingJSONDecoder(self.flat, interpolate=interpolate)
-        for section, values in parser.items():
-            if section == "DEFAULT":
+                node = node[part]
+        if not isinstance(node, dict):
+            raise ParseError(f"Found conflicting values for {parts}")
+        # Set the default section
+        node = node.setdefault(parts[-1], {})
+        for key, value in values.items():
+            # parse key
+            if key.startswith("@"):
+                # special @ key, values are plain unquoted strings
+                node[key] = str(value)
                 continue
-            parts = section.split(".")
-            node = self
-            for part in parts[:-1]:
-                if part not in node:
-                    node = node.setdefault(part, ConfigDict())
-                else:
-                    node = node[part]
-            if not isinstance(node, dict):
-                raise ParseError(f"Found conflicting values for {parts}")
-            # Set the default section
-            node = node.setdefault(parts[-1], ConfigDict())
-            for key, value in values.items():
-                # parse key
-                if key.startswith("@"):
-                    # special @ key, values are plain unquoted strings
-                    node[key] = str(value)
-                    continue
-                elif isintegral_str(key):
-                    # integral key, used for positional arguments
-                    pos = int(key)
-                    if pos < 0:
-                        raise ParseError(f"Negative positions are not valid: {pos}")
-                    key = str(pos)
-                elif not str.isidentifier(key):
-                    raise ParseError(f"Key is not valid: {repr(key)}")
+            elif isintegral_str(key):
+                # integral key, used for positional arguments
+                pos = int(key)
+                if pos < 0:
+                    raise ParseError(f"Negative positions are not valid: {pos}")
+                key = str(pos)
+            elif not str.isidentifier(key):
+                raise ParseError(f"Key is not valid: {repr(key)}")
 
-                # parse value
-                try:
-                    parsed_value = json_parser.decode(value)
-                except json.JSONDecodeError as err:
-                    raise ParseError(
-                        f"Error parsing value of {key}: {repr(value)}: {err}"
-                    ) from None
-                node[key] = parsed_value
+            # parse value
+            try:
+                parsed_value = json_parser.decode(value)
+            except json.JSONDecodeError as err:
+                raise ParseError(
+                    f"Error parsing value of {key}: {repr(value)}: {err}"
+                ) from None
+            node[key] = parsed_value
+    return result
 
 
-def cast(value: Any, *, object_hook=None) -> JsonData:
+def dump_config(conf: Dict[str, Any]) -> str:
+    """Dump configuration as string."""
+
+    flat_conf = FlatDictProxy(conf)
+    writer = ConfigParser()
+    for path in flat_conf:
+        if "." not in path:
+            raise SaveError(f"section missing from {repr(path)}")
+        section, key = path.rsplit(".", 1)
+        value = flat_conf[path]
+        if key == "@ref":
+            # restore interpolation syntax
+            if "." not in section:
+                raise SaveError(f"section missing from {repr(section)}")
+            section, key = section.rsplit(".", 1)
+            if key.startswith("@"):
+                raise SaveError(f"illegal key at {path}: {repr(key)}")
+            str_value = "${" + str(value) + "}"
+        elif key.startswith("@") or isintegral_str(key):
+            # special @ key, values are unquoted strings
+            # integral key, values are integers
+            str_value = str(value)
+        else:
+            str_value = json.dumps(value)
+        if not writer.has_section(section):
+            writer.add_section(section)
+        writer.set(section, key, str_value)
+    buf = StringIO()
+    writer.write(buf)
+    return buf.getvalue().strip()
+
+
+def cast_as_json_key(key: Union[int, str]) -> str:
+    """Cast config keys to JSON compatible strings."""
+
+    if isint(key):
+        # integral keys are used for positional arguments
+        if key < 0:
+            raise ValueError(f"Negative integer keys are not valid: {key}")
+        key = str(key)
+    if not isinstance(key, str):
+        raise TypeError(f"not JSON compatible: key is not string: {repr(key)}")
+    if not (str.isidentifier(key) or isintegral_str(key) or key.startswith("@")):
+        raise ParseError(f"Key is not valid: {repr(key)}")
+    return key
+
+
+def cast_as_json(value: Any, *, object_hook=None) -> JsonData:
     """Cast config values to JSON compatible standard types."""
 
     if value is None:
@@ -359,29 +445,46 @@ def cast(value: Any, *, object_hook=None) -> JsonData:
     elif isinstance(value, str):
         return str(value)
     elif isinstance(value, (list, tuple, np_ndarray)):
-        return [cast(v, object_hook=object_hook) for v in value]
+        return [cast_as_json(v, object_hook=object_hook) for v in value]
     elif isinstance(value, dict):
-
-        def check(key: Union[int, str]) -> str:
-            if isint(key):
-                # integral keys are used for positional arguments
-                if key < 0:
-                    raise ValueError(f"Negative integer keys are not valid: {key}")
-                key = str(key)
-            if not isinstance(key, str):
-                raise TypeError(
-                    f"not JSON compatible: key is not string: {repr(key)} in {repr(value)}"
-                )
-            return key
-
         value = dict(
-            (check(k), cast(v, object_hook=object_hook)) for k, v in value.items()
+            (cast_as_json_key(k), cast_as_json(v, object_hook=object_hook))
+            for k, v in value.items()
         )
         if object_hook:
             return object_hook(value)
         return value
     else:
         raise TypeError(f"not JSON compatible: {type(value).__name__}: {repr(value)}")
+
+
+def validate(reference: JsonData, value: JsonData) -> None:
+    """Validate config values against the corresponding schema."""
+
+    schema = infer_schema(reference)
+    if infer_schema(value) != schema:
+        raise ValidationError(
+            f"invalid value {repr(value)} for schema {schema}; "
+            f"inferred as {infer_schema(value)}"
+        )
+
+
+def infer_schema(data: JsonData) -> JsonSchema:
+    if data is None:
+        return "None"
+    elif isinstance(data, (bool, int, float, str)):
+        return type(data).__name__
+    elif isinstance(data, list):
+        if data == []:
+            # cannot validate empty list by anything other than an empty list :-/
+            return []
+        else:
+            # intended for homogeneous arrays/tensors
+            return [infer_schema(data[0])]
+    elif isinstance(data, dict):
+        return {k: infer_schema(v) for k, v in data.items()}
+    else:
+        raise TypeError(f"not JSON data: {repr(data)}")
 
 
 class ParseError(ValueError):
@@ -392,11 +495,16 @@ class SaveError(ValueError):
     pass
 
 
+class ValidationError(ValueError):
+    pass
+
+
 class InterpolatingJSONDecoder(json.JSONDecoder):
     """JSON decoder with variable substitution/interpolation."""
 
-    def __init__(self, variables: Dict, *, interpolate: bool = True):
+    def __init__(self, variables: Optional[Mapping] = None) -> None:
         super().__init__()
+        interpolate = variables is not None
 
         default_parse_array: Callable = self.parse_array
         default_parse_object: Callable = self.parse_object
@@ -533,17 +641,17 @@ class ConfigView(Dict[str, JsonData]):
             return f"ConfigView[{'.'.join(self._view_path)}]: {self._node}"
 
     @property
-    def _node(self) -> Config:
+    def _node(self) -> ConfigDict:
         node = self._config
         for key in self._view_path:
             node = node[key]
         return node
 
-    def clear(self) -> None:
+    def reset(self) -> None:
         """Clear configuration."""
         if self._view_path:
             raise RuntimeError("Only root config can be cleared")
-        self._config.clear()
+        self._config = Config()
 
     def load_str(self, txt: str) -> None:
         """Load configuration from string."""

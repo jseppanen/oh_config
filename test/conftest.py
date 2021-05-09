@@ -4,6 +4,7 @@ import pytest
 @pytest.fixture
 def oh():
     import oh
-    oh.config.clear()
+
+    oh.config.reset()
     oh.registry.clear()
     return oh

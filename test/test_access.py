@@ -1,10 +1,6 @@
-import json
-from typing import Any
-
-import numpy as np
 import pytest
 
-from oh import Config
+from oh import Config, ValidationError
 
 
 def test_attribute_access():
@@ -19,12 +15,14 @@ def test_attribute_access():
     assert c.a.x == 42
     assert c.c.d.z.hello == "world"
 
-    c.a.y = 43
-    c.c.c = 44
-    assert c.a.x == 42
-    assert c.a.y == 43
-    assert c.c.c == 44
-    assert c.c.d.z.hello == "world"
+    c.a.x = 43
+    assert c.a.x == 43
+
+    with pytest.raises(ValidationError):
+        c.a.y = 43
+
+    with pytest.raises(AttributeError):
+        c.a.b.c.d.e = 99
 
 
 def test_dict_access():
@@ -39,18 +37,15 @@ def test_dict_access():
     )
     assert c == {"a": {"0": -1, "x": 42}, "c": {"d": {"z": {"hello": "world"}}}}
 
-    c["a"]["y"] = 43
-    c["c"]["c"] = 44
+    c["a"]["x"] = 43
     assert c["a"]["0"] == -1
-    assert c["a"]["x"] == 42
-    assert c["a"]["y"] == 43
-    assert c["c"]["c"] == 44
+    assert c["a"]["x"] == 43
     assert c["c"]["d"]["z"]["hello"] == "world"
 
     # test integer access
     assert c["a"][0] == -1
-    c["a"][5] = 5
-    assert c["a"][5] == 5
+    c["a"][0] = 5
+    assert c["a"][0] == 5
 
     with pytest.raises(ValueError):
         c["a"][-5] = 5
@@ -70,6 +65,9 @@ def test_dict_access():
     with pytest.raises(TypeError):
         c["a"][[1, 2]] = 5
 
+    with pytest.raises(KeyError):
+        c["a"]["b"]["c"]["d"]["e"] = 99
+
 
 def test_flat_access():
     c = Config.from_str(
@@ -88,30 +86,8 @@ def test_flat_access():
         c.flat["c.d.z.helloooo"]
     assert c.flat["c.d.z.hello"] == "world"
 
-    with pytest.raises(KeyError):
+    with pytest.raises(TypeError):
         c.flat["x.y.z"] = 1
 
-    with pytest.raises(KeyError):
+    with pytest.raises(TypeError):
         del c.flat["a.x"]
-
-
-def test_update():
-    c = Config.from_str(
-        """
-        [a]
-        x = 42
-        [b.c]
-        y = "asdf"
-        """
-    )
-    c.update({"b": {"d": 2}})
-    assert c == {"a": {"x": 42}, "b": {"d": 2}}
-
-    c.update({"b": {"d": np.int64(64)}})
-    assert c == {"a": {"x": 42}, "b": {"d": 64}}
-    assert_valid_json(c)
-
-
-def assert_valid_json(data: Any) -> None:
-    """Test that data is serializable as plain JSON."""
-    json.dumps(data)
