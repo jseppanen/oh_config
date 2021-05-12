@@ -51,3 +51,13 @@ def test_save_as_str():
 
     h = Config.from_str(e.to_str())
     assert h == d
+
+
+def test_save_as_dict():
+    c = Config.from_str(TEST_CONFIG)
+    d = Config(c.to_dict())
+    assert c == d
+
+    e = Config.from_str(TEST_CONFIG, interpolate=False)
+    f = Config(e.to_dict())
+    assert e == f

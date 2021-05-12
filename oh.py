@@ -144,6 +144,14 @@ class ConfigDict(dict):
         """Pickling support."""
         return type(self), (dict(self),)
 
+    def to_dict(self) -> dict:
+        """Convert the config into a standard (nested) dict.
+
+        Returns a copy of config using only standard Python types.
+        Useful for persistence/pickling.
+        """
+        return cast_as_json(self)
+
     def setdefault(
         self, key: Union[int, str], default: Optional[Any] = None
     ) -> JsonData:
