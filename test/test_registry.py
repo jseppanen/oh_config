@@ -70,10 +70,10 @@ def test_register_renamed(oh):
 
     oh.config.load_str(
         """
-        [main]
+        [a.main]
         @call = meaning_of_life
         0 = 42
         """
     )
-    res = oh.config.main()
+    res = oh.config.a.main()
     assert res == True

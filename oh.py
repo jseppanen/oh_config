@@ -38,11 +38,13 @@ Some highlights:
 # SOFTWARE.
 
 import importlib
+import inspect
 import json
 import numbers
 import re
 from configparser import ConfigParser
 from contextlib import contextmanager
+from dataclasses import dataclass
 from functools import partial
 from io import StringIO
 from pathlib import Path
@@ -99,7 +101,7 @@ class ConfigDict(dict):
         func_name = defaults.pop("@call")
         func = resolve(func_name)
         args, kwargs = merge_args(defaults, *pos_overrides, **kw_overrides)
-        return dispatch(func, args, kwargs)
+        return func(*args, **kwargs)
 
     def __getattr__(self, name: str) -> JsonData:
         """Convenient attribute access to dictionary values."""
@@ -236,21 +238,33 @@ class Config(ConfigDict):
         return FlatDictProxy(self)
 
     @classmethod
-    def from_str(cls, txt: str, *, interpolate: bool = True) -> "Config":
+    def from_str(
+        cls, txt: str, *, interpolate: bool = True, fill_defaults: bool = True
+    ) -> "Config":
         """Load configuration from string."""
         parsed = parse_config(txt, interpolate=interpolate)
-        return cls(parsed)
+        config = cls(parsed)
+        if fill_defaults:
+            _fill_defaults(config)
+        return config
 
     @classmethod
     def from_file(
-        cls, fd: Union[str, Path, TextIO], *, interpolate: bool = True
+        cls,
+        fd: Union[str, Path, TextIO],
+        *,
+        interpolate: bool = True,
+        fill_defaults: bool = True,
     ) -> "Config":
         """Load configuration from file."""
         if isinstance(fd, (str, Path)):
             fd = open(fd)
         txt = fd.read()
         parsed = parse_config(txt, interpolate=interpolate)
-        return cls(parsed)
+        config = cls(parsed)
+        if fill_defaults:
+            _fill_defaults(config)
+        return config
 
     @classmethod
     def from_json(cls, data: str) -> "Config":
@@ -696,26 +710,57 @@ class ConfigView(Dict[str, JsonData]):
                 assert popped == part, "push/pop invariant failed"
 
 
+@dataclass
+class ConfigFunction:
+    func: Callable
+    with_defaults: bool = False
+
+    def __call__(self, *args, **kwargs) -> Any:
+        try:
+            return self.func(*args, **kwargs)
+        except Exception as err:
+            # generate more helpful error message
+            args_txt = ", ".join(repr(a) for a in args)
+            if kwargs:
+                if args:
+                    args_txt += ", "
+                args_txt += ", ".join(f"{k}={repr(v)}" for k, v in kwargs.items())
+            func_name = getattr(self.func, "__name__", "<unnamed callable>")
+            msg = (
+                f"Call failed: {func_name}({args_txt}): {err.__class__.__name__}: {err}"
+            )
+            raise RuntimeError(msg) from err
+
+    def get_defaults(self) -> Dict[str, Any]:
+        return _inspect_defaults(self.func) if self.with_defaults else {}
+
+
 # default global singleton configuration
 config = ConfigView(Config())
 
 
 # default global singleton function registry
-registry: Dict[str, Callable] = {}
+registry: Dict[str, ConfigFunction] = {}
 
 
 def register(
     func_or_class_or_name: Optional[Union[Callable, str]] = None,
     name: Optional[str] = None,
+    *,
+    with_defaults: bool = False,
 ) -> Callable:
-    """Register functions/classes as @call config keys."""
+    """Register functions/classes as @call config keys.
+    :param with_defaults: Parse default configuration from function signature.
+    """
     if isinstance(func_or_class_or_name, str):
         # @oh.register("foobar")
-        return partial(register, name=func_or_class_or_name)
+        return partial(
+            register, name=func_or_class_or_name, with_defaults=with_defaults
+        )
 
     if func_or_class_or_name is None:
         # @oh.register
-        return partial(register, name=name)
+        return partial(register, name=name, with_defaults=with_defaults)
 
     # @oh.register()
     func = func_or_class_or_name
@@ -725,52 +770,61 @@ def register(
         raise ValueError(f"Name of callable is not valid: {name}")
 
     global registry
-    registry[name] = func
+    registry[name] = ConfigFunction(func, with_defaults)
     return func
 
 
-def resolve(name: str) -> Callable:
+def _inspect_defaults(func: Callable) -> Dict[str, Any]:
+    signature = inspect.signature(func)
+    defaults = {
+        name: param.default
+        for name, param in signature.parameters.items()
+        if param.default != inspect.Parameter.empty
+    }
+    return defaults
+
+
+def _fill_defaults(config: ConfigDict) -> None:
+    """Traverse config for @call sections and fill their default values."""
+
+    if "@call" in config:
+        func = resolve(config["@call"])
+        defaults = func.get_defaults()
+        config.update(
+            (
+                (name, default)
+                for pos, (name, default) in enumerate(defaults.items())
+                if name not in config and str(pos) not in config
+            ),
+            merge_schema=True,
+        )
+    else:
+        for child in config.values():
+            if isinstance(child, ConfigDict):
+                _fill_defaults(child)
+
+
+def resolve(name: str) -> ConfigFunction:
     """Resolve callable by registry or module lookup."""
     global registry
     if not isinstance(name, str):
         raise TypeError(f"Name is not a string: {name}")
     if ":" not in name:
         # registry lookup
-        name, attr_path = (name + ".").split(".", 1)
         if name not in registry:
             raise KeyError(f"Name not found in callable registry: {name}")
-        obj = registry[name]
-        if attr_path:
-            obj = nested_getattr(obj, attr_path)
-        return obj
+        return registry[name]
     else:
         # module import
         if name.count(":") > 1:
             raise ParseError(f"Expected <module>:<function>, got: {name}")
         module_name, attr_path = name.split(":", 1)
         module = importlib.import_module(module_name)
-        return nested_getattr(module, attr_path)
+        func = nested_getattr(module, attr_path)
+        return ConfigFunction(func)
 
 
 def nested_getattr(obj, path):
     for name in path.split("."):
         obj = getattr(obj, name)
     return obj
-
-
-def dispatch(func: Callable, args: Tuple, kwargs: Dict) -> Any:
-    """Make function call with dynamic arguments."""
-    try:
-        return func(*args, **kwargs)
-    except Exception as err:
-        # generate more helpful error message
-        args_txt = ", ".join(repr(a) for a in args)
-        if kwargs:
-            if args:
-                args_txt += ", "
-            args_txt += ", ".join(f"{k}={repr(v)}" for k, v in kwargs.items())
-        func_name = getattr(func, "__name__", "<unnamed callable>")
-        msg = (
-            f"Dispatch failed: {func_name}({args_txt}): {err.__class__.__name__}: {err}"
-        )
-        raise RuntimeError(msg) from err
