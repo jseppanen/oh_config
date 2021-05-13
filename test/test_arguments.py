@@ -63,3 +63,19 @@ def test_no_positional_args(oh):
     )
     res = oh.config.main()
     assert res == "OK"
+
+
+def test_aliasing(oh):
+    @oh.register
+    def fun(a=3, b=4):
+        return
+
+    with pytest.raises(ParseError):
+        oh.config.load_str(
+            """
+            [main]
+            @call = fun
+            a = 1
+            0 = 2
+            """
+        )
