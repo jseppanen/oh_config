@@ -87,8 +87,15 @@ class ConfigDict(dict):
     """
 
     def __init__(self, data: Optional[Union[Mapping, Iterable]] = None) -> None:
-        # XXX data needs to have been cast_as_json(., object_hook=ConfigDict)
-        super().__init__(data or {})
+        """Initialize ConfigDict from mapping or sequence data.
+
+        Values are converted to JSON compatible types (plus ints). Nested dicts are
+        converted to ConfigDicts recursively, to implement ConfigDict functionality.
+        """
+        super().__init__()
+        # circuit breaker for infinite recursion from ConfigDict._new(...)
+        if data is not None:
+            self.update(data)
 
     def __call__(self, *pos_overrides, **kw_overrides) -> Any:
         """Call functions/types referenced in config.
@@ -135,7 +142,7 @@ class ConfigDict(dict):
         key = cast_as_json_key(key)
         if key not in self:
             raise ValidationError(f"invalid key: {repr(key)}")
-        value = cast_as_json(value, object_hook=ConfigDict)
+        value = cast_as_json(value, object_hook=ConfigDict._new)
         validate(self[key], value)
         super().__setitem__(key, value)
 
@@ -146,12 +153,23 @@ class ConfigDict(dict):
         """Pickling support."""
         return type(self), (dict(self),)
 
+    @classmethod
+    def _new(cls, data: dict) -> "ConfigDict":
+        """Create ConfigDict without recursive conversions.
+
+        For use with cast_as_json(..., object_hook=ConfigDict._new)
+        """
+        res = cls()
+        super(cls, res).update(data)
+        return res
+
     def to_dict(self) -> dict:
         """Convert the config into a standard (nested) dict.
 
         Returns a copy of config using only standard Python types.
         Useful for persistence/pickling.
         """
+        # convert nested ConfigDict's into dicts recursively
         return cast_as_json(self)
 
     def setdefault(
@@ -197,8 +215,10 @@ class ConfigDict(dict):
 
         if not self:
             # initial unvalidated update
-            # XXX cast_as_json
-            super().update(kvs())
+            dict_data = dict(kvs())
+            # convert nested dicts to ConfigDict's recursively
+            data: ConfigDict = cast_as_json(dict_data, object_hook=ConfigDict._new)
+            super().update(data)
 
         else:
             for key, value in kvs():
@@ -214,7 +234,7 @@ class ConfigDict(dict):
                         self[key] = value
                 elif merge_schema:
                     # add new keys without validation
-                    value = cast_as_json(value, object_hook=ConfigDict)
+                    value = cast_as_json(value, object_hook=ConfigDict._new)
                     super().__setitem__(key, value)
                 else:
                     raise ValidationError(f"invalid key: {repr(key)}")
@@ -229,7 +249,6 @@ class Config(ConfigDict):
     """
 
     def __init__(self, data: Optional[dict] = None) -> None:
-        data = cast_as_json(data, object_hook=ConfigDict)
         super().__init__(data)
 
     @property
