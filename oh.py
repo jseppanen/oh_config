@@ -146,6 +146,9 @@ class ConfigDict(dict):
         validate(self[key], value)
         super().__setitem__(key, value)
 
+    def __repr__(self) -> str:
+        return f"ConfigDict({repr(self.to_dict())})"
+
     def __delitem__(self, key: Any) -> None:
         raise ValidationError("ConfigDict keys are immutable")
 
@@ -250,6 +253,9 @@ class Config(ConfigDict):
 
     def __init__(self, data: Optional[dict] = None) -> None:
         super().__init__(data)
+
+    def __repr__(self) -> str:
+        return f"Config({repr(self.to_dict())})"
 
     @property
     def flat(self) -> Mapping[str, JsonData]:
