@@ -1,7 +1,7 @@
 import json
 import pickle
 
-from oh import Config
+from oh import Config, ConfigDict
 
 TEST_CONFIG = """
 [a]
@@ -32,11 +32,18 @@ def test_save_as_pickle():
     c = Config.from_str(TEST_CONFIG)
     data = pickle.dumps(c)
     d = pickle.loads(data)
+    assert isinstance(d, dict)
+    assert not isinstance(d, Config)
+    assert not isinstance(d, ConfigDict)
+    assert not isinstance(d["a"], ConfigDict)
     assert d == c
 
     c = Config.from_str(TEST_CONFIG, interpolate=False)
     data = pickle.dumps(c)
     d = pickle.loads(data)
+    assert isinstance(d, dict)
+    assert not isinstance(d, Config)
+    assert not isinstance(d, ConfigDict)
     assert d == c
 
 

@@ -150,8 +150,8 @@ class ConfigDict(dict):
         raise ValidationError("ConfigDict keys are immutable")
 
     def __reduce_ex__(self, protocol):
-        """Pickling support."""
-        return type(self), (dict(self),)
+        """Pickling ConfigDicts converts them to plain old dicts."""
+        return dict, (self.to_dict(),)
 
     @classmethod
     def _new(cls, data: dict) -> "ConfigDict":
