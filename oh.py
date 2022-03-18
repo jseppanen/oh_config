@@ -700,16 +700,16 @@ class ConfigView(Dict[str, JsonData]):
             raise RuntimeError("Only root config can be cleared")
         self._config = Config()
 
-    def load_str(self, txt: str) -> None:
+    def load_str(self, txt: str, **kwargs) -> None:
         """Load configuration from string."""
         if self._view_path:
             raise RuntimeError("Only root config can be loaded")
-        self._config.load_str(txt)
+        self._config.load_str(txt, **kwargs)
 
-    def load_file(self, fd: Union[str, Path, TextIO]) -> None:
+    def load_file(self, fd: Union[str, Path, TextIO], **kwargs) -> None:
         if self._view_path:
             raise RuntimeError("Only root config can be loaded")
-        self._config.load_file(fd)
+        self._config.load_file(fd, **kwargs)
 
     def update(self, *args, **kwargs):
         if self._view_path:
